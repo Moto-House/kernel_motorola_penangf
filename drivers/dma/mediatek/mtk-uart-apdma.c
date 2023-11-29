@@ -262,8 +262,8 @@ static irqreturn_t mtk_uart_apdma_irq_handler(int irq, void *dev_id)
 	else if (c->dir == DMA_MEM_TO_DEV)
 		mtk_uart_apdma_tx_handler(c);
 	mtk_uart_apdma_chan_complete_handler(c);
-	spin_unlock_irqrestore(&c->vc.lock, flags);
-
+	//spin_unlock_irqrestore(&c->vc.lock, flags);
+	spin_unlock(&c->vc.lock);
 	return IRQ_HANDLED;
 }
 

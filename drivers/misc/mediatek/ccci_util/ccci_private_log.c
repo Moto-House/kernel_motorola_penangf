@@ -938,6 +938,7 @@ static void ccci_dump_buffer_init(void)
 			node_ptr++;
 		}
 	}
+#if IS_ENABLED(CONFIG_MTK_AEE_IPANIC)
 #if IS_ENABLED(CONFIG_ARM64)
 	mrdump_mini_add_extra_file((unsigned long)reg_dump_ctlb[0].buffer,
 		__pa_nodebug(reg_dump_ctlb[0].buffer),
@@ -952,6 +953,7 @@ static void ccci_dump_buffer_init(void)
 	mrdump_mini_add_extra_file((unsigned long)ke_dump_ctlb[0].buffer,
 		__pa(ke_dump_ctlb[0].buffer),
 		CCCI_KE_DUMP_BUF, "EXTRA_CCCI");
+#endif
 #endif
 }
 

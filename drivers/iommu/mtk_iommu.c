@@ -3,6 +3,9 @@
  * Copyright (c) 2015-2016 MediaTek Inc.
  * Author: Yong Wu <yong.wu@mediatek.com>
  */
+#define pr_fmt(fmt)    "mtk_iommu: " fmt
+//#define IOMMU_SECURE_DEBUG
+
 #include <linux/bitfield.h>
 #include <linux/bug.h>
 #include <linux/clk.h>
@@ -119,6 +122,29 @@
 #define WR_THROT_EN			BIT(6)
 #define HAS_LEGACY_IVRP_PADDR		BIT(7)
 #define IOVA_34_EN			BIT(8)
+#define NOT_STD_AXI_MODE		BIT(9)
+#define SET_TBW_ID			BIT(10)
+#define LINK_WITH_APU			BIT(11)
+#define TLB_SYNC_EN			BIT(12)
+#define IOMMU_SEC_BK_EN			BIT(13)
+#define SKIP_CFG_PORT			BIT(14)
+/* For IOMMU EP/bring up phase: CLK AO */
+#define IOMMU_CLK_AO_EN			BIT(15)
+/* For IOMMU EP/bring up phase: smi not ready */
+#define IOMMU_EN_PRE			BIT(16)
+/* Debug: Skip register IRQ */
+#define IOMMU_NO_IRQ			BIT(17)
+#define GET_DOM_ID_LEGACY		BIT(18)
+#define HAS_SMI_SUB_COMM		BIT(19)
+#define SAME_SUBSYS			BIT(20)
+#define IOMMU_MAU_EN			BIT(21)
+#define PM_OPS_SKIP			BIT(22)
+#define SHARE_PGTABLE			BIT(23)
+#define IOMMU_NO_SMCCC			BIT(24)
+#define HAS_EMI_PM			BIT(25)
+
+#define POWER_ON_STA		1
+#define POWER_OFF_STA		0
 
 #define MTK_IOMMU_HAS_FLAG(pdata, _x) \
 		((((pdata)->flags) & (_x)) == (_x))
@@ -953,11 +979,32 @@ static int mtk_iommu_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static int __maybe_unused mtk_iommu_runtime_suspend(struct device *dev)
+static int mtk_iommu_hw_suspend(struct device *dev)
 {
 	struct mtk_iommu_data *data = dev_get_drvdata(dev);
 	struct mtk_iommu_suspend_reg *reg = &data->reg;
 	void __iomem *base = data->base;
+	unsigned long flags;
+
+	if (MTK_IOMMU_HAS_FLAG(data->plat_data, PM_OPS_SKIP))
+		return 0;
+
+	/* skip read register when hw_init is not finish. */
+	if (!data->m4u_dom) {
+		clk_disable_unprepare(data->bclk);
+		return 0;
+	}
+
+	spin_lock_irqsave(&data->tlb_lock, flags);
+	if (data->plat_data->iommu_type != APU_IOMMU) {
+		if (!mtk_iommu_power_get(data)) {
+			pr_notice("%s, iommu:(%d,%d) power off dev:%s\n",
+				  __func__, data->plat_data->iommu_type,
+				  data->plat_data->iommu_id, dev_name(data->dev));
+			spin_unlock_irqrestore(&data->tlb_lock, flags);
+			return 0;
+		}
+	}
 
 	reg->wr_len_ctrl = readl_relaxed(base + REG_MMU_WR_LEN_CTRL);
 	reg->misc_ctrl = readl_relaxed(base + REG_MMU_MISC_CTRL);
@@ -967,11 +1014,31 @@ static int __maybe_unused mtk_iommu_runtime_suspend(struct device *dev)
 	reg->int_main_control = readl_relaxed(base + REG_MMU_INT_MAIN_CONTROL);
 	reg->ivrp_paddr = readl_relaxed(base + REG_MMU_IVRP_PADDR);
 	reg->vld_pa_rng = readl_relaxed(base + REG_MMU_VLD_PA_RNG);
+	reg->tbw_id = readl_relaxed(base + REG_MMU_TBW_ID);
+
+#if IS_ENABLED(CONFIG_MTK_IOMMU_MISC_SECURE)
+	if (MTK_IOMMU_HAS_FLAG(data->plat_data, IOMMU_SEC_BK_EN))
+		mtk_iommu_secure_bk_backup_by_atf(data->plat_data->iommu_type,
+				data->plat_data->iommu_id);
+
+	if (MTK_IOMMU_HAS_FLAG(data->plat_data, IOMMU_MAU_EN))
+		mtk_iommu_mau_reg_backup(data);
+#endif
+
+	if (data->plat_data->iommu_type != APU_IOMMU)
+		mtk_iommu_power_put(data);
+
+	spin_unlock_irqrestore(&data->tlb_lock, flags);
+
+#if IS_ENABLED(CONFIG_MTK_IOMMU_MISC_DBG)
+	mtk_iommu_pm_trace(dev, false);
+#endif
+
 	clk_disable_unprepare(data->bclk);
 	return 0;
 }
 
-static int __maybe_unused mtk_iommu_runtime_resume(struct device *dev)
+static int mtk_iommu_hw_resume(struct device *dev)
 {
 	struct mtk_iommu_data *data = dev_get_drvdata(dev);
 	struct mtk_iommu_suspend_reg *reg = &data->reg;
@@ -992,6 +1059,18 @@ static int __maybe_unused mtk_iommu_runtime_resume(struct device *dev)
 	if (!m4u_dom)
 		return 0;
 
+	spin_lock_irqsave(&data->tlb_lock, flags);
+	if (data->plat_data->iommu_type != APU_IOMMU) {
+		if (!mtk_iommu_power_get(data)) {
+			pr_notice("%s, iommu:(%d,%d) power off dev:%s\n",
+				  __func__, data->plat_data->iommu_type, data->plat_data->iommu_id,
+				  dev_name(data->dev));
+			spin_unlock_irqrestore(&data->tlb_lock, flags);
+			return 0;
+		}
+	}
+
+	writel_relaxed(reg->tbw_id, base + REG_MMU_TBW_ID);
 	writel_relaxed(reg->wr_len_ctrl, base + REG_MMU_WR_LEN_CTRL);
 	writel_relaxed(reg->misc_ctrl, base + REG_MMU_MISC_CTRL);
 	writel_relaxed(reg->dcm_dis, base + REG_MMU_DCM_DIS);
@@ -1001,11 +1080,242 @@ static int __maybe_unused mtk_iommu_runtime_resume(struct device *dev)
 	writel_relaxed(reg->ivrp_paddr, base + REG_MMU_IVRP_PADDR);
 	writel_relaxed(reg->vld_pa_rng, base + REG_MMU_VLD_PA_RNG);
 	writel(m4u_dom->cfg.arm_v7s_cfg.ttbr & MMU_PT_ADDR_MASK, base + REG_MMU_PT_BASE_ADDR);
+
+#if IS_ENABLED(CONFIG_MTK_IOMMU_MISC_SECURE)
+	if (MTK_IOMMU_HAS_FLAG(data->plat_data, IOMMU_SEC_BK_EN))
+		mtk_iommu_secure_bk_restore_by_atf(data->plat_data->iommu_type,
+				data->plat_data->iommu_id);
+
+	if (MTK_IOMMU_HAS_FLAG(data->plat_data, IOMMU_MAU_EN))
+		mtk_iommu_mau_reg_restore(data);
+#endif
+
+	if (data->plat_data->iommu_type != APU_IOMMU)
+		mtk_iommu_power_put(data);
+
+	spin_unlock_irqrestore(&data->tlb_lock, flags);
+
+#if IS_ENABLED(CONFIG_MTK_IOMMU_MISC_DBG)
+	mtk_iommu_pm_trace(dev, true);
+#endif
+
 	return 0;
 }
 
+static int __maybe_unused mtk_iommu_runtime_suspend(struct device *dev)
+{
+	struct mtk_iommu_data *data = dev_get_drvdata(dev);
+
+	if (!MTK_IOMMU_HAS_FLAG(data->plat_data, HAS_EMI_PM))
+		return mtk_iommu_hw_suspend(dev);
+
+	return 0;
+}
+
+static int __maybe_unused mtk_iommu_runtime_resume(struct device *dev)
+{
+	struct mtk_iommu_data *data = dev_get_drvdata(dev);
+
+	if (!MTK_IOMMU_HAS_FLAG(data->plat_data, HAS_EMI_PM))
+		return mtk_iommu_hw_resume(dev);
+
+	return 0;
+}
+
+static int __maybe_unused mtk_iommu_suspend(struct device *dev)
+{
+	struct mtk_iommu_data *data = dev_get_drvdata(dev);
+
+	if (MTK_IOMMU_HAS_FLAG(data->plat_data, HAS_EMI_PM))
+		return mtk_iommu_hw_suspend(dev);
+
+	return 0;
+}
+
+static int __maybe_unused mtk_iommu_resume(struct device *dev)
+{
+	struct mtk_iommu_data *data = dev_get_drvdata(dev);
+
+	if (MTK_IOMMU_HAS_FLAG(data->plat_data, HAS_EMI_PM))
+		return mtk_iommu_hw_resume(dev);
+
+	return 0;
+}
+
+#if IS_ENABLED(CONFIG_MTK_IOMMU_MISC_SECURE)
+#ifdef IOMMU_SECURE_DEBUG
+static int mtk_dump_reg(const struct mtk_iommu_data *data,
+	unsigned int start, unsigned int length)
+{
+	int i = 0;
+	void __iomem *base = data->base;
+
+	for (i = 0; i < length; i += 4) {
+		if (length - i == 1)
+			pr_info("0x%x=0x%x\n",
+				start + 4 * i,
+				readl_relaxed(base + start + 4 * i));
+		else if (length - i == 2)
+			pr_info("0x%x=0x%x, 0x%x=0x%x\n",
+				start + 4 * i,
+				readl_relaxed(base + start + 4 * i),
+				start + 4 * (i + 1),
+				readl_relaxed(base + start + 4 * (i + 1)));
+		else if (length - i == 3)
+			pr_info("0x%x=0x%x, 0x%x=0x%x, 0x%x=0x%x\n",
+				start + 4 * i,
+				readl_relaxed(base + start + 4 * i),
+				start + 4 * (i + 1),
+				readl_relaxed(base + start + 4 * (i + 1)),
+				start + 4 * (i + 2),
+				readl_relaxed(base + start + 4 * (i + 2)));
+		else if (length - i >= 4)
+			pr_info("0x%x=0x%x, 0x%x=0x%x, 0x%x=0x%x, 0x%x=0x%x\n",
+				start + 4 * i,
+				readl_relaxed(base + start + 4 * i),
+				start + 4 * (i + 1),
+				readl_relaxed(base + start + 4 * (i + 1)),
+				start + 4 * (i + 2),
+				readl_relaxed(base + start + 4 * (i + 2)),
+				start + 4 * (i + 3),
+				readl_relaxed(base + start + 4 * (i + 3)));
+	}
+
+	return 0;
+}
+
+static int mtk_dump_debug_reg_info(const struct mtk_iommu_data *data)
+{
+	pr_info("---- iommu(%d, %d) debug register ----\n",
+		data->plat_data->iommu_type, data->plat_data->iommu_id);
+	return mtk_dump_reg(data, REG_MMU_DBG(0), MTK_IOMMU_DEBUG_REG_NR);
+}
+
+static int mtk_dump_rs_sta_info(const struct mtk_iommu_data *data, int mmu)
+{
+	pr_info("---- iommu(%d, %d) mmu%d: RS status register ----\n",
+		data->plat_data->iommu_type, data->plat_data->iommu_id, mmu);
+
+	pr_info("--<0x0>iova/bank --<0x4>descriptor --<0x8>2nd-base --<0xc>status\n");
+	return mtk_dump_reg(data,
+			    REG_MMU_RS_VA(mmu, 0),
+			    MTK_IOMMU_RS_COUNT * 4);
+}
+#endif /* IOMMU_SECURE_DEBUG */
+#endif
+
+static void mtk_dump_reg_for_hang_issue(struct mtk_iommu_data *data)
+{
+#if IS_ENABLED(CONFIG_MTK_IOMMU_MISC_SECURE)
+#ifdef IOMMU_SECURE_DEBUG
+	int cnt, ret, i, dump_count = 1;
+#endif /* IOMMU_SECURE_DEBUG */
+#endif
+	void __iomem *base = data->base;
+
+	if (data->base == NULL) {
+		pr_err("%s, base is NULL\n",  __func__);
+		return;
+	}
+
+	base = data->base;
+	pr_info("%s start, (%d, %d)\n", __func__, data->plat_data->iommu_type,
+		data->plat_data->iommu_id);
+	/* control register */
+	pr_info("REG_MMU_PT_BASE_ADDR(0x000)	   = 0x%x\n",
+		readl_relaxed(base + REG_MMU_PT_BASE_ADDR));
+	pr_info("REG_MMU_IVRP_PADDR(0x114)	   = 0x%x\n",
+		readl_relaxed(base + REG_MMU_IVRP_PADDR));
+	pr_info("REG_MMU_DUMMY(0x044)	   = 0x%x\n",
+		readl_relaxed(base + REG_MMU_DUMMY));
+	pr_info("REG_MMU_MISC_CTRL(0x048)   = 0x%x\n",
+		readl_relaxed(base + REG_MMU_MISC_CTRL));
+	pr_info("REG_MMU_DCM_DIS(0x050)	 = 0x%x\n",
+		readl_relaxed(base + REG_MMU_DCM_DIS));
+	pr_info("REG_MMU_WR_LEN_CTRL(0x054) = 0x%x\n",
+		readl_relaxed(base + REG_MMU_WR_LEN_CTRL));
+	pr_info("REG_MMU_TBW_ID(0x0A0)	  = 0x%x\n",
+		readl_relaxed(base + REG_MMU_TBW_ID));
+	pr_info("REG_MMU_CTRL_REG(0x110)   = 0x%x\n",
+		readl_relaxed(base + REG_MMU_CTRL_REG));
+
+#if IS_ENABLED(CONFIG_MTK_IOMMU_MISC_SECURE)
+#ifdef IOMMU_SECURE_DEBUG
+	ret = ao_secure_dbg_switch_by_atf(data->plat_data->iommu_type,
+			data->plat_data->iommu_id, 1);
+	if (ret) {
+		pr_err("%s, failed to enable secure debug\n", __func__);
+		return;
+	}
+
+	for (cnt = 0; cnt < dump_count; cnt++) {
+		pr_info("===== the %d time: REG_MMU_STA(0x008) = 0x%x =====\n",
+			cnt, readl_relaxed(base + REG_MMU_STA));
+		mtk_dump_debug_reg_info(data);
+		for (i = 0; i < MTK_IOMMU_MMU_COUNT; i++)
+			mtk_dump_rs_sta_info(data, i);
+	}
+
+	pr_info("===== dump hang reg end =====\n");
+
+	ret = ao_secure_dbg_switch_by_atf(data->plat_data->iommu_type,
+			data->plat_data->iommu_id, 0);
+	if (ret)
+		pr_err("%s, failed to disable secure debug\n", __func__);
+#endif /* IOMMU_SECURE_DEBUG */
+#endif
+	pr_info("%s done, (%d, %d)\n", __func__, data->plat_data->iommu_type,
+		data->plat_data->iommu_id);
+}
+
+void mtk_iommu_dbg_hang_detect(enum mtk_iommu_type type, int id)
+{
+	struct list_head *hw_list;
+	struct mtk_iommu_data *data;
+	unsigned long flags;
+
+	if (!share_pgtable) {
+		switch (type) {
+		case MM_IOMMU:
+			hw_list = &mm_iommu_list;
+			break;
+		case APU_IOMMU:
+			hw_list = &apu_iommu_list;
+			break;
+		default:
+			pr_err("%s failed, type is invalid, %d\n",
+				__func__, type);
+			return;
+		}
+	} else {
+		hw_list = &m4ulist;
+	}
+
+	for_each_m4u(data, hw_list) {
+		if (data->plat_data->iommu_type == type && data->plat_data->iommu_id == id) {
+			spin_lock_irqsave(&data->tlb_lock, flags);
+			if (!mtk_iommu_power_get(data)) {
+				pr_notice("%s, iommu:(%d,%d) power off dev:%s\n",
+					  __func__, type, id, dev_name(data->dev));
+				spin_unlock_irqrestore(&data->tlb_lock, flags);
+				return;
+			}
+
+			mtk_dump_reg_for_hang_issue(data);
+
+			mtk_iommu_power_put(data);
+			spin_unlock_irqrestore(&data->tlb_lock, flags);
+			return;
+		}
+	}
+
+	pr_info("%s, (%d,%d) no dump\n", __func__, type, id);
+}
+EXPORT_SYMBOL_GPL(mtk_iommu_dbg_hang_detect);
+
 static const struct dev_pm_ops mtk_iommu_pm_ops = {
 	SET_RUNTIME_PM_OPS(mtk_iommu_runtime_suspend, mtk_iommu_runtime_resume, NULL)
+	SET_NOIRQ_SYSTEM_SLEEP_PM_OPS(mtk_iommu_suspend, mtk_iommu_resume)
 	SET_LATE_SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend,
 				     pm_runtime_force_resume)
 };
@@ -1019,6 +1329,50 @@ static const struct mtk_iommu_plat_data mt2712_data = {
 	.larbid_remap = {{0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}},
 };
 
+static const struct mtk_iommu_plat_data mt6739_data = {
+	.m4u_plat      = M4U_MT6739,
+	.flags         = HAS_SUB_COMM | OUT_ORDER_WR_EN | WR_THROT_EN |
+			 NOT_STD_AXI_MODE | SHARE_PGTABLE | HAS_EMI_PM,
+	.inv_sel_reg   = REG_MMU_INV_SEL_GEN1,
+	.iova_region   = single_domain,
+	.iova_region_nr = ARRAY_SIZE(single_domain),
+	.iommu_id	= DISP_IOMMU,
+	.iommu_type     = MM_IOMMU,
+};
+
+static const struct mtk_iommu_plat_data mt6761_data = {
+	.m4u_plat      = M4U_MT6761,
+	.flags         = HAS_SUB_COMM | OUT_ORDER_WR_EN | WR_THROT_EN |
+			 NOT_STD_AXI_MODE | SHARE_PGTABLE | HAS_EMI_PM,
+	.inv_sel_reg   = REG_MMU_INV_SEL_GEN1,
+	.iova_region   = single_domain,
+	.iova_region_nr = ARRAY_SIZE(single_domain),
+	.iommu_id	= DISP_IOMMU,
+	.iommu_type     = MM_IOMMU,
+};
+
+static const struct mtk_iommu_plat_data mt6765_data = {
+	.m4u_plat      = M4U_MT6765,
+	.flags         = HAS_SUB_COMM | OUT_ORDER_WR_EN | WR_THROT_EN |
+			 NOT_STD_AXI_MODE | SHARE_PGTABLE | HAS_EMI_PM,
+	.inv_sel_reg   = REG_MMU_INV_SEL_GEN1,
+	.iova_region   = single_domain,
+	.iova_region_nr = ARRAY_SIZE(single_domain),
+	.iommu_id	= DISP_IOMMU,
+	.iommu_type     = MM_IOMMU,
+};
+
+static const struct mtk_iommu_plat_data mt6768_data = {
+	.m4u_plat      = M4U_MT6768,
+	.flags         = HAS_SUB_COMM | OUT_ORDER_WR_EN | WR_THROT_EN |
+			 NOT_STD_AXI_MODE | SHARE_PGTABLE | HAS_EMI_PM,
+	.inv_sel_reg   = REG_MMU_INV_SEL_GEN1,
+	.iova_region   = single_domain,
+	.iova_region_nr = ARRAY_SIZE(single_domain),
+	.iommu_id	= DISP_IOMMU,
+	.iommu_type     = MM_IOMMU,
+};
+
 static const struct mtk_iommu_plat_data mt6779_data = {
 	.m4u_plat      = M4U_MT6779,
 	.flags         = HAS_SUB_COMM | OUT_ORDER_WR_EN | WR_THROT_EN,
@@ -1026,6 +1380,335 @@ static const struct mtk_iommu_plat_data mt6779_data = {
 	.iova_region   = single_domain,
 	.iova_region_nr = ARRAY_SIZE(single_domain),
 	.larbid_remap  = {{0}, {1}, {2}, {3}, {5}, {7, 8}, {10}, {9}},
+};
+
+/* use the same data as mt6853 */
+static const struct mtk_iommu_plat_data mt6833_data = {
+	.m4u_plat = M4U_MT6833,
+	.flags         = HAS_SUB_COMM | OUT_ORDER_WR_EN | WR_THROT_EN |
+			 HAS_BCLK | NOT_STD_AXI_MODE | IOVA_34_EN |
+			 SHARE_PGTABLE | HAS_SMI_SUB_COMM | IOMMU_SEC_BK_EN |
+			 IOMMU_NO_SMCCC | GET_DOM_ID_LEGACY,
+	.inv_sel_reg   = REG_MMU_INV_SEL_GEN2,
+	.iommu_id	= DISP_IOMMU,
+	.iommu_type     = MM_IOMMU,
+	.iova_region    = mt6833_multi_dom,
+	.iova_region_nr = ARRAY_SIZE(mt6833_multi_dom),
+	.larbid_remap = {{0}, {1}, {4, 5}, {7}, {2}, {9, 11, 19, 20},
+			 {0, 14, 16}, {0, 13, 18, 17}},
+};
+
+static const struct mtk_iommu_plat_data mt6789_data = {
+	.m4u_plat = M4U_MT6789,
+	.flags         = HAS_SUB_COMM | OUT_ORDER_WR_EN | GET_DOM_ID_LEGACY |
+			 NOT_STD_AXI_MODE | IOVA_34_EN | SHARE_PGTABLE |
+			 IOMMU_NO_SMCCC | IOMMU_SEC_BK_EN |
+			 HAS_SMI_SUB_COMM | WR_THROT_EN | HAS_BCLK,
+	.inv_sel_reg   = REG_MMU_INV_SEL_GEN2,
+	.iommu_id	= DISP_IOMMU,
+	.iommu_type     = MM_IOMMU,
+	.iova_region    = mt6789_multi_dom,
+	.iova_region_nr = ARRAY_SIZE(mt6789_multi_dom),
+};
+
+/* copy the mtk_iommu_plat_data form the mt6873 because
+ * the mt6853 almost uset the same data as mt6873.
+ * but only add the IOVA_34_EN flag.
+ */
+static const struct mtk_iommu_plat_data mt6853_data = {
+	.m4u_plat = M4U_MT6853,
+	.flags         = HAS_SUB_COMM | OUT_ORDER_WR_EN | WR_THROT_EN |
+			 HAS_BCLK | NOT_STD_AXI_MODE | IOVA_34_EN | SHARE_PGTABLE,
+	.inv_sel_reg   = REG_MMU_INV_SEL_GEN2,
+	.iommu_id	= DISP_IOMMU,
+	.iommu_type     = MM_IOMMU,
+	/* use the same data as mt6873 */
+	.iova_region    = mt6873_multi_dom,
+	.iova_region_nr = ARRAY_SIZE(mt6873_multi_dom),
+	.larbid_remap = {{0}, {1}, {4, 5}, {7}, {2}, {9, 11, 19, 20},
+			 {0, 14, 16}, {0, 13, 18, 17}},
+};
+
+static const struct mtk_iommu_plat_data mt6855_data_disp = {
+	.m4u_plat	= M4U_MT6855,
+	.flags          = HAS_SUB_COMM | OUT_ORDER_WR_EN | GET_DOM_ID_LEGACY |
+			  NOT_STD_AXI_MODE | TLB_SYNC_EN | SHARE_PGTABLE | IOMMU_SEC_BK_EN |
+			  SKIP_CFG_PORT | IOVA_34_EN | HAS_BCLK | HAS_SMI_SUB_COMM,
+	.inv_sel_reg    = REG_MMU_INV_SEL_GEN2,
+	.iommu_id	= DISP_IOMMU,
+	.iommu_type     = MM_IOMMU,
+	.normal_dom	= 0,
+	.iova_region    = mt6855_multi_dom,
+	.iova_region_nr = ARRAY_SIZE(mt6855_multi_dom),
+};
+
+static const struct mtk_iommu_plat_data mt6873_data = {
+	.m4u_plat = M4U_MT6873,
+	.flags         = HAS_SUB_COMM | OUT_ORDER_WR_EN | WR_THROT_EN |
+			 HAS_BCLK | NOT_STD_AXI_MODE | SHARE_PGTABLE,
+	.inv_sel_reg   = REG_MMU_INV_SEL_GEN2,
+	.iommu_id	= DISP_IOMMU,
+	.iommu_type     = MM_IOMMU,
+	.iova_region    = mt6873_multi_dom,
+	.iova_region_nr = ARRAY_SIZE(mt6873_multi_dom),
+	/* not use larbid_remap */
+	.larbid_remap = {{0}, {1}, {4, 5}, {7}, {2}, {9, 11, 19, 20},
+			 {0, 14, 16}, {0, 13, 18, 17}},
+};
+
+static const struct mtk_iommu_plat_data mt6873_data_apu = {
+	.m4u_plat        = M4U_MT6873,
+	.flags           = LINK_WITH_APU | SHARE_PGTABLE,
+	.inv_sel_reg     = REG_MMU_INV_SEL_GEN2,
+	.iommu_id	 = APU_IOMMU0,
+	.iommu_type      = APU_IOMMU,
+	.iova_region     = mt6873_multi_dom,
+	/* not use larbid_remap */
+	.larbid_remap    = {{0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}},
+	.iova_region_nr  = ARRAY_SIZE(mt6873_multi_dom),
+};
+
+static const struct mtk_iommu_plat_data mt6879_data_disp = {
+	.m4u_plat	= M4U_MT6879,
+	.flags          = HAS_SUB_COMM | OUT_ORDER_WR_EN | GET_DOM_ID_LEGACY |
+			  NOT_STD_AXI_MODE | TLB_SYNC_EN | IOMMU_SEC_BK_EN |
+			  SKIP_CFG_PORT | IOVA_34_EN | HAS_BCLK | HAS_SMI_SUB_COMM |
+			  IOMMU_MAU_EN,
+	.hw_list        = &mm_iommu_list,
+	.inv_sel_reg    = REG_MMU_INV_SEL_GEN2,
+	.iommu_id	= DISP_IOMMU,
+	.iommu_type     = MM_IOMMU,
+	.tab_id		= MM_TABLE,
+	.normal_dom	= 0,
+	.iova_region    = mt6879_multi_dom_mm,
+	.iova_region_nr = ARRAY_SIZE(mt6879_multi_dom_mm),
+	.mau_count	= 4,
+	/* not use larbid_remap */
+};
+
+static const struct mtk_iommu_plat_data mt6879_data_apu0 = {
+	.m4u_plat	= M4U_MT6879,
+	.flags          = HAS_SUB_COMM | TLB_SYNC_EN | IOMMU_SEC_BK_EN |
+			  GET_DOM_ID_LEGACY | IOVA_34_EN | LINK_WITH_APU | PM_OPS_SKIP |
+			  IOMMU_MAU_EN,
+	.hw_list        = &apu_iommu_list,
+	.inv_sel_reg    = REG_MMU_INV_SEL_GEN2,
+	.iommu_id	= APU_IOMMU0,
+	.iommu_type     = APU_IOMMU,
+	.tab_id		= APU_TABLE,
+	.normal_dom	= 0,
+	.iova_region    = mt6879_multi_dom_apu,
+	.iova_region_nr = ARRAY_SIZE(mt6879_multi_dom_apu),
+	.mau_count	= 4,
+	/* not use larbid_remap */
+};
+
+static const struct mtk_iommu_plat_data mt6893_data_iommu0 = {
+	.m4u_plat        = M4U_MT6893,
+	.flags           = NOT_STD_AXI_MODE | HAS_SUB_COMM | OUT_ORDER_WR_EN | WR_THROT_EN |
+			   HAS_BCLK | IOVA_34_EN | GET_DOM_ID_LEGACY |
+			   SHARE_PGTABLE | IOMMU_SEC_BK_EN,
+	/* not use larbid_remap */
+	.larbid_remap    = {{0}, {1}, {4, 5}, {7}, {2}, {9, 11, 19, 20},
+			    {0, 14, 16}, {0, 13, 18, 17}},
+	.inv_sel_reg     = REG_MMU_INV_SEL_GEN2,
+	.iommu_id	 = DISP_IOMMU,
+	.iommu_type      = MM_IOMMU,
+	.normal_dom	 = 0,
+	.iova_region     = mt6873_multi_dom,
+	.iova_region_nr  = ARRAY_SIZE(mt6873_multi_dom),
+};
+
+static const struct mtk_iommu_plat_data mt6893_data_iommu1 = {
+	.m4u_plat        = M4U_MT6893,
+	.flags           = NOT_STD_AXI_MODE | HAS_SUB_COMM | OUT_ORDER_WR_EN | WR_THROT_EN |
+			   HAS_BCLK | IOVA_34_EN | GET_DOM_ID_LEGACY |
+			   SHARE_PGTABLE | IOMMU_SEC_BK_EN,
+	/* not use larbid_remap */
+	.larbid_remap    = {{0}, {1}, {4, 5}, {7}, {2}, {9, 11, 19, 20},
+			    {0, 14, 16}, {0, 13, 18, 17}},
+	.inv_sel_reg     = REG_MMU_INV_SEL_GEN2,
+	.iommu_id	 = MDP_IOMMU,
+	.iommu_type      = MM_IOMMU,
+	.normal_dom	 = 0,
+	.iova_region     = mt6873_multi_dom,
+	.iova_region_nr = ARRAY_SIZE(mt6873_multi_dom),
+};
+
+static const struct mtk_iommu_plat_data mt6893_data_iommu2 = {
+	.m4u_plat        = M4U_MT6893,
+	.flags           = LINK_WITH_APU | IOVA_34_EN | GET_DOM_ID_LEGACY | SHARE_PGTABLE,
+	.iommu_id	 = APU_IOMMU0,
+	.iommu_type      = APU_IOMMU,
+	.normal_dom      = 0,
+	.inv_sel_reg	 = REG_MMU_INV_SEL_GEN2,
+	.iova_region	 = mt6873_multi_dom,
+	/* not use larbid_remap */
+	.larbid_remap    = {{0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}},
+	.iova_region_nr  = ARRAY_SIZE(mt6873_multi_dom),
+};
+
+static const struct mtk_iommu_plat_data mt6893_data_iommu3 = {
+	.m4u_plat        = M4U_MT6893,
+	.flags           = LINK_WITH_APU | SHARE_PGTABLE,
+	.iommu_id	 = APU_IOMMU1,
+	.iommu_type      = APU_IOMMU,
+	.normal_dom	 = 0,
+	.inv_sel_reg	 = REG_MMU_INV_SEL_GEN2,
+	.iova_region	 = mt6873_multi_dom,
+	/* not use larbid_remap */
+	.larbid_remap    = {{0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}},
+	.iova_region_nr  = ARRAY_SIZE(mt6873_multi_dom),
+};
+
+static const struct mtk_iommu_plat_data mt6895_data_disp = {
+	.m4u_plat	= M4U_MT6895,
+	.flags          = HAS_SUB_COMM | OUT_ORDER_WR_EN | GET_DOM_ID_LEGACY |
+			  NOT_STD_AXI_MODE | TLB_SYNC_EN | IOMMU_SEC_BK_EN |
+			  SKIP_CFG_PORT | IOVA_34_EN | IOMMU_MAU_EN |
+			  HAS_SMI_SUB_COMM | SAME_SUBSYS | HAS_BCLK,
+	.hw_list        = &mm_iommu_list,
+	.inv_sel_reg    = REG_MMU_INV_SEL_GEN2,
+	.iommu_id	= DISP_IOMMU,
+	.iommu_type     = MM_IOMMU,
+	.tab_id		= MM_TABLE,
+	.normal_dom	= 0,
+	.iova_region    = mt6895_multi_dom_mm,
+	.iova_region_nr = ARRAY_SIZE(mt6895_multi_dom_mm),
+	.mau_count	= 4,
+	/* not use larbid_remap */
+};
+
+static const struct mtk_iommu_plat_data mt6895_data_mdp = {
+	.m4u_plat	= M4U_MT6895,
+	.flags          = HAS_SUB_COMM | OUT_ORDER_WR_EN | GET_DOM_ID_LEGACY |
+			  NOT_STD_AXI_MODE | TLB_SYNC_EN | IOMMU_SEC_BK_EN |
+			  SKIP_CFG_PORT | IOVA_34_EN | IOMMU_MAU_EN |
+			  HAS_SMI_SUB_COMM | SAME_SUBSYS | HAS_BCLK,
+	.hw_list        = &mm_iommu_list,
+	.inv_sel_reg    = REG_MMU_INV_SEL_GEN2,
+	.iommu_id	= MDP_IOMMU,
+	.iommu_type     = MM_IOMMU,
+	.tab_id		= MM_TABLE,
+	.normal_dom	= 0,
+	.iova_region    = mt6895_multi_dom_mm,
+	.iova_region_nr = ARRAY_SIZE(mt6895_multi_dom_mm),
+	.mau_count	= 4,
+	/* not use larbid_remap */
+};
+
+static const struct mtk_iommu_plat_data mt6895_data_apu0 = {
+	.m4u_plat	= M4U_MT6895,
+	.flags          = HAS_SUB_COMM | TLB_SYNC_EN | IOMMU_SEC_BK_EN |
+			  GET_DOM_ID_LEGACY | IOVA_34_EN | LINK_WITH_APU | IOMMU_MAU_EN |
+			  PM_OPS_SKIP,
+	.hw_list        = &apu_iommu_list,
+	.inv_sel_reg    = REG_MMU_INV_SEL_GEN2,
+	.iommu_id	= APU_IOMMU0,
+	.iommu_type     = APU_IOMMU,
+	.tab_id		= APU_TABLE,
+	.normal_dom	= 0,
+	.iova_region    = mt6895_multi_dom_apu,
+	.iova_region_nr = ARRAY_SIZE(mt6895_multi_dom_apu),
+	.mau_count	= 4,
+	/* not use larbid_remap */
+};
+
+static const struct mtk_iommu_plat_data mt6895_data_apu1 = {
+	.m4u_plat	= M4U_MT6895,
+	.flags          = HAS_SUB_COMM | TLB_SYNC_EN | IOMMU_SEC_BK_EN |
+			  GET_DOM_ID_LEGACY | IOVA_34_EN | LINK_WITH_APU | IOMMU_MAU_EN |
+			  PM_OPS_SKIP,
+	.hw_list        = &apu_iommu_list,
+	.inv_sel_reg    = REG_MMU_INV_SEL_GEN2,
+	.iommu_id	= APU_IOMMU1,
+	.iommu_type     = APU_IOMMU,
+	.tab_id		= APU_TABLE,
+	.normal_dom	= 0,
+	.iova_region    = mt6895_multi_dom_apu,
+	.iova_region_nr = ARRAY_SIZE(mt6895_multi_dom_apu),
+	.mau_count	= 4,
+	/* not use larbid_remap */
+};
+
+static const struct mtk_iommu_plat_data mt6983_data_disp = {
+	.m4u_plat	= M4U_MT6983,
+	.flags          = HAS_SUB_COMM | OUT_ORDER_WR_EN | GET_DOM_ID_LEGACY |
+			  NOT_STD_AXI_MODE | TLB_SYNC_EN | IOMMU_SEC_BK_EN |
+			  SKIP_CFG_PORT | IOVA_34_EN |
+			  HAS_BCLK | HAS_SMI_SUB_COMM | SAME_SUBSYS | IOMMU_MAU_EN,
+	.hw_list        = &mm_iommu_list,
+	.inv_sel_reg    = REG_MMU_INV_SEL_GEN2,
+	.iommu_id	= DISP_IOMMU,
+	.iommu_type     = MM_IOMMU,
+	.tab_id		= MM_TABLE,
+	.normal_dom	= 0,
+	.iova_region    = mt6983_multi_dom_mm,
+	.iova_region_nr = ARRAY_SIZE(mt6983_multi_dom_mm),
+	.mau_count	= 4,
+	/* not use larbid_remap */
+	.larbid_remap	= {{0}, {0}, {21}, {0},         /*0 ~ 3*/
+	                  {2}, {0}, {5}, {0},           /*4 ~ 7*/
+	                  {7}, {0}, {9, 10, 11, 23},    /*8 ~ 10*/
+	                  {0}, {13, 25, 27, 29}, {30},  /*11 ~ 13*/
+	                  {6}, {0}},                    /*14 ~ 15*/
+};
+
+static const struct mtk_iommu_plat_data mt6983_data_mdp = {
+	.m4u_plat	= M4U_MT6983,
+	.flags          = HAS_SUB_COMM | OUT_ORDER_WR_EN | GET_DOM_ID_LEGACY |
+			  NOT_STD_AXI_MODE | TLB_SYNC_EN | IOMMU_SEC_BK_EN |
+			  SKIP_CFG_PORT | IOVA_34_EN |
+			  HAS_BCLK | HAS_SMI_SUB_COMM | SAME_SUBSYS | IOMMU_MAU_EN,
+	.hw_list        = &mm_iommu_list,
+	.inv_sel_reg    = REG_MMU_INV_SEL_GEN2,
+	.iommu_id	= MDP_IOMMU,
+	.iommu_type     = MM_IOMMU,
+	.tab_id		= MM_TABLE,
+	.normal_dom	= 0,
+	.iova_region    = mt6983_multi_dom_mm,
+	.iova_region_nr = ARRAY_SIZE(mt6983_multi_dom_mm),
+	.mau_count	= 4,
+	/* not use larbid_remap */
+	.larbid_remap	= {{1}, {0}, {20}, {0},         /*0 ~ 3*/
+	                  {3}, {0}, {4}, {0},           /*4 ~ 7*/
+	                  {8}, {0}, {22, 12, 15, 18},   /*8 ~ 10*/
+	                  {0}, {14, 26, 16, 17}, {28, 19, 0, 0}, /*11 ~ 13*/
+	                  {0}, {0}},                    /*14 ~ 15*/
+};
+
+static const struct mtk_iommu_plat_data mt6983_data_apu0 = {
+	.m4u_plat	= M4U_MT6983,
+	.flags          = HAS_SUB_COMM | TLB_SYNC_EN | IOMMU_SEC_BK_EN |
+			  GET_DOM_ID_LEGACY | IOVA_34_EN | LINK_WITH_APU | IOMMU_MAU_EN |
+			  PM_OPS_SKIP,
+	.hw_list        = &apu_iommu_list,
+	.inv_sel_reg    = REG_MMU_INV_SEL_GEN2,
+	.iommu_id	= APU_IOMMU0,
+	.iommu_type     = APU_IOMMU,
+	.tab_id		= APU_TABLE,
+	.normal_dom	= 0,
+	.iova_region    = mt6983_multi_dom_apu,
+	.iova_region_nr = ARRAY_SIZE(mt6983_multi_dom_apu),
+	.mau_count	= 4,
+	/* not use larbid_remap */
+};
+
+static const struct mtk_iommu_plat_data mt6983_data_apu1 = {
+	.m4u_plat	= M4U_MT6983,
+	.flags          = HAS_SUB_COMM | TLB_SYNC_EN | IOMMU_SEC_BK_EN |
+			  GET_DOM_ID_LEGACY | IOVA_34_EN | LINK_WITH_APU | IOMMU_MAU_EN |
+			  PM_OPS_SKIP,
+	.hw_list        = &apu_iommu_list,
+	.inv_sel_reg    = REG_MMU_INV_SEL_GEN2,
+	.iommu_id	= APU_IOMMU1,
+	.iommu_type     = APU_IOMMU,
+	.tab_id		= APU_TABLE,
+	.normal_dom	= 0,
+	.iova_region    = mt6983_multi_dom_apu,
+	.iova_region_nr = ARRAY_SIZE(mt6983_multi_dom_apu),
+	.mau_count	= 4,
+	/* not use larbid_remap */
 };
 
 static const struct mtk_iommu_plat_data mt8167_data = {

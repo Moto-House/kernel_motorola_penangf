@@ -1644,7 +1644,8 @@ static int mt6358_amic_enable(struct mt6358_priv *priv)
 		}
 		/* Enable MICBIAS0, MISBIAS0 = 1P9V */
 		regmap_update_bits(priv->regmap, MT6358_AUDENC_ANA_CON9,
-				   0xff, 0x21);
+				   0xff, 0x51);
+		dev_err(priv->dev, "%s(), wujing enable micbias0 , 0x51\n",__func__);
 	}
 
 	/* mic bias 1 */
@@ -2392,8 +2393,10 @@ static void mt6358_codec_init_reg(struct mt6358_priv *priv)
 			   0x1 << RG_AUDLOLSCDISABLE_VAUDP15_SFT);
 
 	/* accdet s/w enable */
+/*Penang code for EKPENANG4GU-3039 by zhangjiayu5 at 20240427 start*/
 	regmap_update_bits(priv->regmap, MT6358_ACCDET_CON13,
-			   0xFFFF, 0x700E);
+			   0xFFFF, 0x3006);//0x700E
+/*Penang code for EKPENANG4GU-3039 by zhangjiayu5 at 20240427 end*/
 
 	/* gpio miso driving set to 4mA */
 	regmap_write(priv->regmap, MT6358_DRV_CON3, 0x8888);
@@ -2421,6 +2424,13 @@ static int mt6358_codec_probe(struct snd_soc_component *cmpnt)
 	ret = regulator_enable(priv->avdd_reg);
 	if (ret)
 		return  ret;
+
+#ifdef CONFIG_SND_SOC_AW87XXX
+	ret = handset_monitor_init();
+	if (ret) {
+		pr_err("%s: init fail,can not Registration issue\n",__func__);
+	}
+#endif
 
 	return 0;
 }

@@ -59,6 +59,210 @@ static const struct resource mt6323_pwrc_resources[] = {
 	DEFINE_RES_MEM(MT6323_PWRC_BASE, MT6323_PWRC_SIZE),
 };
 
+static const struct resource mt6357_accdet_resources[] = {
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_ACCDET, "ACCDET_IRQ"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_ACCDET_EINT0, "ACCDET_EINT0"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_ACCDET_EINT1, "ACCDET_EINT1"),
+};
+
+static const struct resource mt6358_accdet_resources[] = {
+	DEFINE_RES_IRQ_NAMED(MT6358_IRQ_ACCDET, "ACCDET_IRQ"),
+	DEFINE_RES_IRQ_NAMED(MT6358_IRQ_ACCDET_EINT0, "ACCDET_EINT0"),
+	DEFINE_RES_IRQ_NAMED(MT6358_IRQ_ACCDET_EINT1, "ACCDET_EINT1"),
+};
+
+static const struct resource mt6357_regulators_resources[] = {
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VPROC_OC, "VPROC"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VCORE_OC, "VCORE"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VMODEM_OC, "VMODEM"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VS1_OC, "VS1"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VPA_OC, "VPA"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VCORE_PREOC, "VCORE_PR"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VFE28_OC, "VFE28"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VXO22_OC, "VXO22"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VRF18_OC, "VRF18"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VRF12_OC, "VRF12"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VEFUSE_OC, "VEFUSE"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VCN33_OC, "VCN33"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VCN28_OC, "VCN28"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VCN18_OC, "VCN18"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VCAMA_OC, "VCAMA"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VCAMD_OC, "VCAMD"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VCAMIO_OC, "VCAMIO"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VLDO28_OC, "VLDO28"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VUSB33_OC, "VUSB33"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VAUX18_OC, "VAUX18"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VAUD28_OC, "VAUD28"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VIO28_OC, "VIO28"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VIO18_OC, "VIO18"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VSRAM_PROC_OC, "VSRAM_PROC"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VSRAM_OTHERS_OC, "VSRAM_OTHERS"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VIBR_OC, "VIBR"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VDRAM_OC, "VDRAM"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VMC_OC, "VMC"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VMCH_OC, "VMCH"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VEMC_OC, "VEMC"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VSIM1_OC, "VSIM1"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_VSIM2_OC, "VSIM2"),
+};
+
+static const struct resource mt6357_gauge_resources[] = {
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_FG_BAT0_H, "COULOMB_H"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_FG_BAT0_L, "COULOMB_L"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_NAG_C_DLTV, "NAFG"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_FG_ZCV, "ZCV"),
+};
+
+static const struct resource mt6358_gauge_resources[] = {
+	DEFINE_RES_IRQ_NAMED(MT6358_IRQ_FG_BAT1_H, "COULOMB_H"),
+	DEFINE_RES_IRQ_NAMED(MT6358_IRQ_FG_BAT1_L, "COULOMB_L"),
+	DEFINE_RES_IRQ_NAMED(MT6358_IRQ_BAT2_H, "VBAT_H"),
+	DEFINE_RES_IRQ_NAMED(MT6358_IRQ_BAT2_L, "VBAT_L"),
+	DEFINE_RES_IRQ_NAMED(MT6358_IRQ_NAG_C_DLTV, "NAFG"),
+	DEFINE_RES_IRQ_NAMED(MT6358_IRQ_BATON_BAT_OUT, "BAT_OUT"),
+	DEFINE_RES_IRQ_NAMED(MT6358_IRQ_FG_ZCV, "ZCV"),
+	DEFINE_RES_IRQ_NAMED(MT6358_IRQ_FG_N_CHARGE_L, "FG_N_CHARGE_L"),
+	DEFINE_RES_IRQ_NAMED(MT6358_IRQ_FG_IAVG_H, "FG_IAVG_H"),
+	DEFINE_RES_IRQ_NAMED(MT6358_IRQ_FG_IAVG_L, "FG_IAVG_L"),
+	DEFINE_RES_IRQ_NAMED(MT6358_IRQ_BAT_TEMP_H, "BAT_TMP_H"),
+	DEFINE_RES_IRQ_NAMED(MT6358_IRQ_BAT_TEMP_L, "BAT_TMP_L"),
+};
+
+static const struct resource mt6366_gauge_resources[] = {
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_FG_BAT1_H, "COULOMB_H"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_FG_BAT1_L, "COULOMB_L"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_BAT2_H, "VBAT_H"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_BAT2_L, "VBAT_L"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_NAG_C_DLTV, "NAFG"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_BATON_BAT_OUT, "BAT_OUT"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_FG_ZCV, "ZCV"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_FG_N_CHARGE_L, "FG_N_CHARGE_L"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_FG_IAVG_H, "FG_IAVG_H"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_FG_IAVG_L, "FG_IAVG_L"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_BAT_TEMP_H, "BAT_TMP_H"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_BAT_TEMP_L, "BAT_TMP_L"),
+};
+
+static const struct resource mt6359p_regulators_resources[] = {
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VCORE_OC, "VCORE"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VGPU11_OC, "VGPU11"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VGPU12_OC, "VGPU12"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VMODEM_OC, "VMODEM"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VPROC1_OC, "VPROC1"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VPROC2_OC, "VPROC2"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VS1_OC, "VS1"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VS2_OC, "VS2"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VPA_OC, "VPA"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VFE28_OC, "VFE28"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VXO22_OC, "VXO22"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VRF18_OC, "VRF18"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VRF12_OC, "VRF12"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VEFUSE_OC, "VEFUSE"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VCN33_1_OC, "VCN33_1"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VCN33_2_OC, "VCN33_2"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VCN13_OC, "VCN13"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VCN18_OC, "VCN18"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VA09_OC, "VA09"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VCAMIO_OC, "VCAMIO"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VA12_OC, "VA12"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VAUX18_OC, "VAUX18"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VAUD18_OC, "VAUD18"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VIO18_OC, "VIO18"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VSRAM_PROC1_OC, "VSRAM_PROC1"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VSRAM_PROC2_OC, "VSRAM_PROC2"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VSRAM_OTHERS_OC, "VSRAM_OTHERS"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VSRAM_MD_OC, "VSRAM_MD"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VEMC_OC, "VEMC"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VSIM1_OC, "VSIM1"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VSIM2_OC, "VSIM2"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VUSB_OC, "VUSB"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VRFCK_OC, "VRFCK"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VBBCK_OC, "VBBCK"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VBIF28_OC, "VBIF28"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VIBR_OC, "VIBR"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VIO28_OC, "VIO28"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VM18_OC, "VM18"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_VUFS_OC, "VUFS"),
+};
+
+static const struct resource mt6359p_gauge_resources[] = {
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_FG_BAT_H, "COULOMB_H"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_FG_BAT_L, "COULOMB_L"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_BAT2_H, "VBAT_H"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_BAT2_L, "VBAT_L"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_NAG_C_DLTV, "NAFG"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_BATON_BAT_OU, "BAT_OUT"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_FG_ZCV, "ZCV"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_FG_N_CHARGE_L, "FG_N_CHARGE_L"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_FG_IAVG_H, "FG_IAVG_H"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_FG_IAVG_L, "FG_IAVG_L"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_BAT_TEMP_H, "BAT_TMP_H"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_BAT_TEMP_L, "BAT_TMP_L"),
+};
+
+static const struct resource mt6359p_accdet_resources[] = {
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_ACCDET, "ACCDET_IRQ"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_ACCDET_EINT0, "ACCDET_EINT0"),
+	DEFINE_RES_IRQ_NAMED(MT6359P_IRQ_ACCDET_EINT1, "ACCDET_EINT1"),
+};
+
+static const struct resource mt6357_battery_oc_resources[] = {
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_FG_CUR_H, "fg_cur_h"),
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_FG_CUR_L, "fg_cur_l"),
+};
+
+static const struct resource mt6357_chrdet_resources[] = {
+	DEFINE_RES_IRQ_NAMED(MT6357_IRQ_CHRDET_EDGE, "chrdet"),
+};
+
+static const struct resource mt6366_accdet_resources[] = {
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_ACCDET, "ACCDET_IRQ"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_ACCDET_EINT0, "ACCDET_EINT0"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_ACCDET_EINT1, "ACCDET_EINT1"),
+};
+
+static const struct resource mt6366_regulators_resources[] = {
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VPROC11_OC, "VPROC11"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VPROC12_OC, "VPROC12"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VCORE_OC, "VCORE"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VGPU_OC, "VGPU"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VMODEM_OC, "VMODEM"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VDRAM1_OC, "VDRAM1"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VS1_OC, "VS1"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VS2_OC, "VS2"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VPA_OC, "VPA"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VCORE_PREOC, "VCORE_PR"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VFE28_OC, "VFE28"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VXO22_OC, "VXO22"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VRF18_OC, "VRF18"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VRF12_OC, "VRF12"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VEFUSE_OC, "VEFUSE"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VCN33_OC, "VCN33"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VCN28_OC, "VCN28"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VCN18_OC, "VCN18"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VM18_OC, "VM18"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VMDDR_OC, "VMDDR"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VSRAM_CORE_OC, "VSRAM_CORE"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VA12_OC, "VA12"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VAUX18_OC, "VAUX18"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VAUD28_OC, "VAUD28"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VIO28_OC, "VIO28"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VIO18_OC, "VIO18"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VSRAM_PROC11_OC, "VSRAM_PROC11"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VSRAM_PROC12_OC, "VSRAM_PROC12"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VSRAM_OTHERS_OC, "VSRAM_OTHERS"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VSRAM_GPU_OC, "VSRAM_GPU"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VDRAM2_OC, "VDRAM2"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VMC_OC, "VMC"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VMCH_OC, "VMCH"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VEMC_OC, "VEMC"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VSIM1_OC, "VSIM1"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VSIM2_OC, "VSIM2"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VIBR_OC, "VIBR"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VUSB_OC, "VUSB"),
+	DEFINE_RES_IRQ_NAMED(MT6366_IRQ_VBIF28_OC, "VBIF28"),
+};
+
 static const struct mfd_cell mt6323_devs[] = {
 	{
 		.name = "mt6323-rtc",
@@ -96,6 +300,179 @@ static const struct mfd_cell mt6358_devs[] = {
 	}, {
 		.name = "mt6358-sound",
 		.of_compatible = "mediatek,mt6358-sound"
+	}, {
+		.name = "mt6358-gauge",
+		.num_resources = ARRAY_SIZE(mt6358_gauge_resources),
+		.resources = mt6358_gauge_resources,
+		.of_compatible = "mediatek,mt6358-gauge",
+	}, {
+		.name = "mt6358-efuse",
+		.of_compatible = "mediatek,mt6358-efuse",
+	}, {
+		.name = "mt6358-consys",
+		.of_compatible = "mediatek,mt6358-consys"
+	}, {
+		.name = "mtk-battery-oc-throttling",
+		.of_compatible = "mediatek,mt6358-battery_oc_throttling",
+		.num_resources = ARRAY_SIZE(mt6358_battery_oc_resources),
+		.resources = mt6358_battery_oc_resources,
+	}, {
+		.name = "mtk-dynamic-loading-throttling",
+		.of_compatible = "mediatek,mt6358-dynamic_loading_throttling",
+	}, {
+		.name = "mtk-lbat_service",
+		.of_compatible = "mediatek,mt6358-lbat_service",
+		.num_resources = ARRAY_SIZE(mt6358_lbat_service_resources),
+		.resources = mt6358_lbat_service_resources,
+	}, {
+		.name = "mtk-pmic-keys",
+		.num_resources = ARRAY_SIZE(mt6358_keys_resources),
+		.resources = mt6358_keys_resources,
+		.of_compatible = "mediatek,mt6358-keys",
+	}, {
+		.name = "mt-pmic",
+		.of_compatible = "mediatek,mt63xx-debug",
+	}, {
+		.name = "mtk-clock-buffer",
+		.of_compatible = "mediatek,clock_buffer",
+	},
+};
+
+static const struct mfd_cell mt6359p_devs[] = {
+	{
+		.name = "mtk_ts_pmic",
+		.of_compatible = "mediatek,mtk_ts_pmic"
+	}, {
+		.name = "mt6359vcore",
+		.of_compatible = "mediatek,mt6359vcore"
+	}, {
+		.name = "mt6359vproc ",
+		.of_compatible = "mediatek,mt6359vproc"
+	}, {
+		.name = "mt6359vgpu",
+		.of_compatible = "mediatek,mt6359vgpu"
+	}, {
+		.name = "mt6359tsx",
+		.of_compatible = "mediatek,mt6359tsx"
+	}, {
+		.name = "mt6359dcxo",
+		.of_compatible = "mediatek,mt6359dcxo"
+	}, {
+		.name = "mt-pmic",
+		.of_compatible = "mediatek,mt63xx-debug",
+	}, {
+		.name = "mt6359p-accdet",
+		.of_compatible = "mediatek,mt6359p-accdet",
+		.num_resources = ARRAY_SIZE(mt6359p_accdet_resources),
+		.resources = mt6359p_accdet_resources,
+	}, {
+		.name = "mt635x-auxadc",
+		.of_compatible = "mediatek,mt6359p-auxadc",
+		.num_resources = ARRAY_SIZE(mt6359p_auxadc_resources),
+		.resources = mt6359p_auxadc_resources,
+	}, {
+		.name = "mt6359p-efuse",
+		.of_compatible = "mediatek,mt6359p-efuse",
+	}, {
+		.name = "mt6359p-regulator",
+		.of_compatible = "mediatek,mt6359p-regulator",
+		.num_resources = ARRAY_SIZE(mt6359p_regulators_resources),
+		.resources = mt6359p_regulators_resources,
+	}, {
+		.name = "mt6359p-rtc",
+		.num_resources = ARRAY_SIZE(mt6359p_rtc_resources),
+		.resources = mt6359p_rtc_resources,
+		.of_compatible = "mediatek,mt6359p-rtc",
+	}, {
+		.name = "mt6359p-gauge",
+		.num_resources = ARRAY_SIZE(mt6359p_gauge_resources),
+		.resources = mt6359p_gauge_resources,
+		.of_compatible = "mediatek,mt6359p-gauge",
+	}, {
+		.name = "mtk-battery-oc-throttling",
+		.of_compatible = "mediatek,mt6359p-battery_oc_throttling",
+		.num_resources = ARRAY_SIZE(mt6359p_battery_oc_resources),
+		.resources = mt6359p_battery_oc_resources,
+	}, {
+		.name = "mtk-dynamic-loading-throttling",
+		.of_compatible = "mediatek,mt6359p-dynamic_loading_throttling",
+	}, {
+		.name = "mtk-lbat_service",
+		.of_compatible = "mediatek,mt6359p-lbat_service",
+		.num_resources = ARRAY_SIZE(mt6359p_lbat_service_resources),
+		.resources = mt6359p_lbat_service_resources,
+	}, {
+		.name = "mtk-pmic-keys",
+		.num_resources = ARRAY_SIZE(mt6359p_keys_resources),
+		.resources = mt6359p_keys_resources,
+		.of_compatible = "mediatek,mt6359p-keys"
+	}, {
+		.name = "mt6359-sound",
+		.of_compatible = "mediatek,mt6359p-sound"
+	}, {
+		.name = "mtk-clock-buffer",
+		.of_compatible = "mediatek,clock_buffer",
+	}
+};
+
+
+static const struct mfd_cell mt6366_devs[] = {
+	{
+		.name = "mt-pmic",
+		.of_compatible = "mediatek,mt63xx-debug",
+	}, {
+		.name = "mediatek,pmic-accdet",
+		.of_compatible = "mediatek,mt6358-accdet",
+		.num_resources = ARRAY_SIZE(mt6366_accdet_resources),
+		.resources = mt6366_accdet_resources,
+	}, {
+		.name = "mt635x-auxadc",
+		.of_compatible = "mediatek,mt6358-auxadc",
+	}, {
+		.name = "mt6358-efuse",
+		.of_compatible = "mediatek,mt6358-efuse",
+	}, {
+		.name = "mt6358-regulator",
+		.of_compatible = "mediatek,mt6358-regulator",
+		.num_resources = ARRAY_SIZE(mt6366_regulators_resources),
+		.resources = mt6366_regulators_resources,
+	}, {
+		.name = "mtk-battery-oc-throttling",
+		.of_compatible = "mediatek,mt6358-battery_oc_throttling",
+		.num_resources = ARRAY_SIZE(mt6366_battery_oc_resources),
+		.resources = mt6366_battery_oc_resources,
+	}, {
+		.name = "mtk-dynamic-loading-throttling",
+		.of_compatible = "mediatek,mt6358-dynamic_loading_throttling",
+	}, {
+		.name = "mtk-lbat_service",
+		.of_compatible = "mediatek,mt6358-lbat_service",
+		.num_resources = ARRAY_SIZE(mt6366_lbat_service_resources),
+		.resources = mt6366_lbat_service_resources,
+	}, {
+		.name = "mt63xx-oc-debug",
+		.of_compatible = "mediatek,mt63xx-oc-debug",
+	}, {
+		.name = "mt6358-sound",
+		.of_compatible = "mediatek,mt6366-sound"
+	}, {
+		.name = "mtk-pmic-keys",
+		.num_resources = ARRAY_SIZE(mt6366_keys_resources),
+		.resources = mt6366_keys_resources,
+		.of_compatible = "mediatek,mt6366-keys"
+	}, {
+		.name = "mt6358-gauge",
+		.num_resources = ARRAY_SIZE(mt6366_gauge_resources),
+		.resources = mt6366_gauge_resources,
+		.of_compatible = "mediatek,mt6358-gauge",
+	}, {
+		.name = "mtk-clock-buffer",
+		.of_compatible = "mediatek,clock_buffer",
+	}, {
+		.name = "mt6358-rtc",
+		.num_resources = ARRAY_SIZE(mt6358_rtc_resources),
+		.resources = mt6358_rtc_resources,
+		.of_compatible = "mediatek,mt6358-rtc",
 	},
 };
 

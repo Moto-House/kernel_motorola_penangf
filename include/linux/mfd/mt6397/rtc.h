@@ -79,6 +79,7 @@ struct mt6397_rtc {
 	struct regmap           *regmap;
 	int                     irq;
 	u32                     addr_base;
+	bool					skip_LPSD_solution;
 	const struct mtk_rtc_data *data;
 };
 

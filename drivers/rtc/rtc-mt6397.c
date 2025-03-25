@@ -37,6 +37,143 @@ static int mtk_rtc_write_trigger(struct mt6397_rtc *rtc)
 	return ret;
 }
 
+static int rtc_nvram_read(void *priv, unsigned int offset, void *val,
+							size_t bytes)
+{
+	struct mt6397_rtc *rtc = dev_get_drvdata(priv);
+	unsigned int ival;
+	int ret;
+	u8 *buf = val;
+
+	mutex_lock(&rtc->lock);
+
+	for (; bytes; bytes--) {
+		ret = regmap_field_read(rtc->spare[offset++], &ival);
+		if (ret)
+			goto out;
+		*buf++ = (u8)ival;
+	}
+out:
+	mutex_unlock(&rtc->lock);
+	return ret;
+}
+
+static int rtc_nvram_write(void *priv, unsigned int offset, void *val,
+							size_t bytes)
+{
+	struct mt6397_rtc *rtc = dev_get_drvdata(priv);
+	unsigned int ival;
+	int ret;
+	u8 *buf = val;
+
+	mutex_lock(&rtc->lock);
+
+	for (; bytes; bytes--) {
+		ival = *buf++;
+		ret = regmap_field_write(rtc->spare[offset++], ival);
+		if (ret)
+			goto out;
+	}
+	mtk_rtc_write_trigger(rtc);
+out:
+	mutex_unlock(&rtc->lock);
+	return ret;
+}
+
+static void mtk_rtc_reset_bbpu_alarm_status(struct mt6397_rtc *rtc)
+{
+	u32 bbpu;
+	int ret;
+#ifdef SUPPORT_EOSC_CALI
+	if (rtc->data->eosc_cali_version == EOSC_CALI_MT6357_SERIES ||
+		rtc->data->eosc_cali_version == EOSC_CALI_MT6358_SERIES) {
+		if (!rtc->skip_LPSD_solution)
+			return;
+	}
+#endif
+	pr_info("[RTC] %s, alarm_sta_clr_bit = %u\n", __func__, rtc->data->alarm_sta_clr_bit);
+	bbpu = RTC_BBPU_KEY | RTC_BBPU_PWREN | rtc->data->alarm_sta_clr_bit;
+	ret = regmap_write(rtc->regmap, rtc->addr_base + RTC_BBPU, bbpu);
+	if (ret < 0)
+		goto exit;
+	mtk_rtc_write_trigger(rtc);
+
+	return;
+exit:
+	dev_err(rtc->rtc_dev->dev.parent, "%s error\n", __func__);
+
+}
+
+#ifndef USER_BUILD_KERNEL
+void mtk_rtc_lp_exception(struct mt6397_rtc *rtc)
+{
+	u32 bbpu = 0, irqsta = 0, irqen = 0, osc32 = 0;
+	u32 pwrkey1 = 0, pwrkey2 = 0, prot = 0, con = 0, sec1 = 0, sec2 = 0;
+
+	regmap_read(rtc->regmap,
+				rtc->addr_base + RTC_BBPU, &bbpu);
+	regmap_read(rtc->regmap,
+				rtc->addr_base + RTC_IRQ_STA, &irqsta);
+	regmap_read(rtc->regmap,
+				rtc->addr_base + RTC_IRQ_EN, &irqen);
+	regmap_read(rtc->regmap,
+				rtc->addr_base + RTC_OSC32CON, &osc32);
+	regmap_read(rtc->regmap,
+				rtc->addr_base + RTC_POWERKEY1, &pwrkey1);
+	regmap_read(rtc->regmap,
+				rtc->addr_base + RTC_POWERKEY2, &pwrkey2);
+	regmap_read(rtc->regmap,
+				rtc->addr_base + RTC_PROT, &prot);
+	regmap_read(rtc->regmap,
+				rtc->addr_base + RTC_CON, &con);
+	regmap_read(rtc->regmap,
+				rtc->addr_base + RTC_TC_SEC, &sec1);
+	mdelay(2000);
+	regmap_read(rtc->regmap,
+				rtc->addr_base + RTC_TC_SEC, &sec2);
+
+	dev_emerg(rtc->rtc_dev->dev.parent, "!!! 32K WAS STOPPED !!!\n"
+		"RTC_BBPU      = 0x%x\n"
+		"RTC_IRQ_STA   = 0x%x\n"
+		"RTC_IRQ_EN    = 0x%x\n"
+		"RTC_OSC32CON  = 0x%x\n"
+		"RTC_POWERKEY1 = 0x%x\n"
+		"RTC_POWERKEY2 = 0x%x\n"
+		"RTC_PROT      = 0x%x\n"
+		"RTC_CON       = 0x%x\n"
+		"RTC_TC_SEC    = %02d\n"
+		"RTC_TC_SEC    = %02d\n",
+		bbpu, irqsta, irqen, osc32, pwrkey1, pwrkey2, prot, con, sec1,
+		sec2);
+}
+#endif
+
+static int mtk_rtc_is_alarm_irq(struct mt6397_rtc *rtc)
+{
+	u32 irqsta = 0, bbpu;
+	int ret;
+
+	/* read clear */
+	ret = regmap_read(rtc->regmap, rtc->addr_base + RTC_IRQ_STA, &irqsta);
+	if ((ret == 0) && (irqsta & RTC_IRQ_STA_AL)) {
+		bbpu = RTC_BBPU_KEY | RTC_BBPU_PWREN;
+		ret = regmap_write(rtc->regmap,
+					rtc->addr_base + RTC_BBPU, bbpu);
+		if (ret < 0)
+			dev_err(rtc->rtc_dev->dev.parent,
+				"%s error\n", __func__);
+		mtk_rtc_write_trigger(rtc);
+
+		return RTC_ALSTA;
+	}
+#ifndef USER_BUILD_KERNEL
+	if ((ret == 0) && (irqsta & RTC_IRQ_STA_LP))
+		mtk_rtc_lp_exception(rtc);
+#endif
+
+	return RTC_NONE;
+}
+
 static irqreturn_t mtk_rtc_irq_handler_thread(int irq, void *data)
 {
 	struct mt6397_rtc *rtc = data;
@@ -261,6 +398,7 @@ static int mtk_rtc_probe(struct platform_device *pdev)
 {
 	struct resource *res;
 	struct mt6397_chip *mt6397_chip = dev_get_drvdata(pdev->dev.parent);
+	struct device_node *node = pdev->dev.of_node;
 	struct mt6397_rtc *rtc;
 	int ret;
 
@@ -287,6 +425,42 @@ static int mtk_rtc_probe(struct platform_device *pdev)
 	rtc->rtc_dev = devm_rtc_allocate_device(&pdev->dev);
 	if (IS_ERR(rtc->rtc_dev))
 		return PTR_ERR(rtc->rtc_dev);
+	if (of_property_read_bool(node, "skip-lpsd-solution"))
+		rtc->skip_LPSD_solution = true;
+#ifdef SUPPORT_PWR_OFF_ALARM
+	mt6397_rtc_suspend_lock =
+		wakeup_source_register(NULL, "mt6397-rtc suspend wakelock");
+
+	of_chosen = of_find_node_by_path("/chosen");
+	if (!of_chosen)
+		of_chosen = of_find_node_by_path("/chosen@0");
+
+	if (of_chosen) {
+		tag = (struct tag_bootmode *)of_get_property(
+			of_chosen, "atag,boot", NULL);
+		if (!tag)
+			dev_err(&pdev->dev,
+			"%s: failed to get atag,boot\n", __func__);
+		else {
+			dev_notice(&pdev->dev,
+				"%s, bootmode:%d\n", __func__, tag->bootmode);
+			bootmode = tag->bootmode;
+		}
+	} else
+		dev_err(&pdev->dev,
+			"%s: failed to get /chosen and /chosen@0\n", __func__);
+
+#if IS_ENABLED(CONFIG_PM)
+	rtc->pm_nb.notifier_call = rtc_pm_event;
+	rtc->pm_nb.priority = 0;
+	if (register_pm_notifier(&rtc->pm_nb))
+		dev_err(&pdev->dev, "rtc pm faile\n");
+	else
+		rtc_pm_notifier_registered = true;
+#endif /* CONFIG_PM */
+
+	INIT_WORK(&rtc->work, mtk_rtc_work_queue);
+#endif
 
 	ret = devm_request_threaded_irq(&pdev->dev, rtc->irq, NULL,
 					mtk_rtc_irq_handler_thread,
@@ -303,10 +477,25 @@ static int mtk_rtc_probe(struct platform_device *pdev)
 
 	rtc->rtc_dev->ops = &mtk_rtc_ops;
 
+	if (rtc->data->spare_reg_fields)
+		if (mtk_rtc_set_spare(&pdev->dev))
+			dev_err(&pdev->dev, "spare is not supported\n");
+
+#ifdef SUPPORT_EOSC_CALI
+	if (rtc->data->cali_reg_fields)
+		if (mtk_rtc_config_eosc_cali(&pdev->dev))
+			dev_err(&pdev->dev, "config eosc cali failed\n");
+	if (rtc->data->eosc_cali_version == EOSC_CALI_MT6357_SERIES ||
+		rtc->data->eosc_cali_version == EOSC_CALI_MT6358_SERIES) {
+		if(!rtc->skip_LPSD_solution)
+			rtc_lpsd_restore_al_mask(&pdev->dev);
+	}
+#endif
+
 	return rtc_register_device(rtc->rtc_dev);
 }
 
-#ifdef CONFIG_PM_SLEEP
+#if IS_ENABLED(CONFIG_PM_SLEEP)
 static int mt6397_rtc_suspend(struct device *dev)
 {
 	struct mt6397_rtc *rtc = dev_get_drvdata(dev);

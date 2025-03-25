@@ -119,8 +119,10 @@ struct venc_frm_buf {
  * @is_key_frm: output is key frame or not
  */
 struct venc_done_result {
-	unsigned int bs_size;
-	bool is_key_frm;
+	__u32 bs_size;
+	__u32 is_key_frm;
+	unsigned long bs_va;
+	unsigned long frm_va;
 };
 
 extern const struct venc_common_if venc_h264_if;

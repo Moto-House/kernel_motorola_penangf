@@ -613,6 +613,73 @@ static int vidioc_vdec_qbuf(struct file *file, void *priv,
 		return -EIO;
 	}
 
+	vq = v4l2_m2m_get_vq(ctx->m2m_ctx, buf->type);
+	if (buf->index >= vq->num_buffers) {
+		mtk_v4l2_err("[%d] buffer index %d out of range %d",
+			ctx->id, buf->index, vq->num_buffers);
+		return -EINVAL;
+	}
+
+	vb = vq->bufs[buf->index];
+	vb2_v4l2 = container_of(vb, struct vb2_v4l2_buffer, vb2_buf);
+	mtkbuf = container_of(vb2_v4l2, struct mtk_video_dec_buf, vb);
+
+	if (buf->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
+		ctx->input_max_ts =
+			(timeval_to_ns(&buf->timestamp) > ctx->input_max_ts) ?
+			timeval_to_ns(&buf->timestamp) : ctx->input_max_ts;
+		if (IS_ERR_OR_NULL(buf->m.planes)) {
+			mtk_v4l2_err("[%d] buffer planes address %p %llx can not access",
+				ctx->id, buf->m.planes, buf->m.planes);
+			return -EIO;
+		}
+		if (buf->m.planes[0].bytesused == 0) {
+			mtkbuf->lastframe = EOS;
+			mtk_v4l2_debug(1, "[%d] index=%d Eos BS(%d,%d) vb=%p pts=%llu",
+				ctx->id, buf->index,
+				buf->bytesused,
+				buf->length, vb,
+				timeval_to_ns(&buf->timestamp));
+			if (ctx->state == MTK_STATE_INIT)
+				mtk_vdec_queue_error_event(ctx);
+		} else if (buf->flags & V4L2_BUF_FLAG_LAST) {
+			mtkbuf->lastframe = EOS_WITH_DATA;
+			mtk_v4l2_debug(1, "[%d] id=%d EarlyEos BS(%d,%d) vb=%p pts=%llu",
+				ctx->id, buf->index, buf->m.planes[0].bytesused,
+				buf->length, vb,
+				timeval_to_ns(&buf->timestamp));
+		} else {
+			mtkbuf->lastframe = NON_EOS;
+			mtk_v4l2_debug(1, "[%d] id=%d getdata BS(%d,%d) vb=%p pts=%llu %llu",
+				ctx->id, buf->index,
+				buf->m.planes[0].bytesused,
+				buf->length, vb,
+				timeval_to_ns(&buf->timestamp),
+				ctx->input_max_ts);
+		}
+	} else {
+		if (buf->reserved == 0xFFFFFFFF)
+			mtkbuf->general_user_fd = -1;
+		else
+			mtkbuf->general_user_fd = (int)buf->reserved;
+		mtk_v4l2_debug(1, "[%d] id=%d FB (%d) vb=%p, general_buf_fd=%d, mtkbuf->general_buf_fd = %d",
+				ctx->id, buf->index,
+				buf->length, mtkbuf,
+				buf->reserved, mtkbuf->general_user_fd);
+	}
+
+	if (buf->flags & V4L2_BUF_FLAG_NO_CACHE_CLEAN) {
+		mtk_v4l2_debug(4, "[%d] No need for Cache clean, buf->index:%d. mtkbuf:%p",
+			ctx->id, buf->index, mtkbuf);
+		mtkbuf->flags |= NO_CAHCE_CLEAN;
+	}
+
+	if (buf->flags & V4L2_BUF_FLAG_NO_CACHE_INVALIDATE) {
+		mtk_v4l2_debug(4, "[%d] No need for Cache invalidate, buf->index:%d. mtkbuf:%p",
+			ctx->id, buf->index, mtkbuf);
+		mtkbuf->flags |= NO_CAHCE_INVALIDATE;
+	}
+
 	return v4l2_m2m_qbuf(file, ctx->m2m_ctx, buf);
 }
 
@@ -1098,8 +1165,13 @@ static int vb2ops_vdec_queue_setup(struct vb2_queue *vq,
 		else
 			*nplanes = 1;
 
-		for (i = 0; i < *nplanes; i++)
+		for (i = 0; i < *nplanes; i++) {
 			sizes[i] = q_data->sizeimage[i];
+			if (sizes[i] == 0) {
+				mtk_v4l2_err("plane size[%d] is 0", i);
+				return -EINVAL;
+			}
+		}
 	}
 
 	mtk_v4l2_debug(1,

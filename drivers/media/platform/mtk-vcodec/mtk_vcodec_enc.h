@@ -11,15 +11,19 @@
 #include <media/videobuf2-core.h>
 #include <media/v4l2-mem2mem.h>
 
-#define MTK_VENC_IRQ_STATUS_SPS	0x1
-#define MTK_VENC_IRQ_STATUS_PPS	0x2
-#define MTK_VENC_IRQ_STATUS_FRM	0x4
-#define MTK_VENC_IRQ_STATUS_DRAM	0x8
-#define MTK_VENC_IRQ_STATUS_PAUSE	0x10
-#define MTK_VENC_IRQ_STATUS_SWITCH	0x20
+#define VENC_FLAG_ENCODE_TIMEOUT 0x00000002
 
-#define MTK_VENC_IRQ_STATUS_OFFSET	0x05C
-#define MTK_VENC_IRQ_ACK_OFFSET	0x060
+/**
+ * enum eos_types  - encoder different eos types
+ * @NON_EOS     : no eos, normal frame
+ * @EOS_WITH_DATA      : early eos , mean this frame need to encode
+ * @EOS : byteused of the last frame is zero
+ */
+enum eos_types {
+	NON_EOS = 0,
+	EOS_WITH_DATA,
+	EOS
+};
 
 /**
  * struct mtk_video_enc_buf - Private data related to each VB2 buffer.

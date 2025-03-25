@@ -98,3 +98,18 @@ int venc_if_deinit(struct mtk_vcodec_ctx *ctx)
 
 	return ret;
 }
+
+void venc_check_release_lock(void *ctx_check)
+{
+	struct mtk_vcodec_ctx *ctx = (struct mtk_vcodec_ctx *)ctx_check;
+	unsigned long flags;
+	int i;
+
+	for (i = 0; i < MTK_VENC_HW_NUM; i++) {
+		if (ctx->core_locked[i] == 1) {
+			venc_encode_unprepare(ctx, i, &flags);
+			ctx->core_locked[i] = 0;
+			mtk_v4l2_err("[%d] daemon killed when holding lock %d", ctx->id, i);
+		}
+	}
+}

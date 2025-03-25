@@ -34,7 +34,338 @@ static const struct v4l2_frmsize_stepwise mtk_venc_framesizes = {
 	MTK_VENC_MIN_H, MTK_VENC_MAX_H, 16,
 };
 
-#define NUM_SUPPORTED_FRAMESIZE ARRAY_SIZE(mtk_venc_framesizes)
+static int mtk_venc_sec_dc_map_dmabuf(void *mem_priv)
+{
+	struct vb2_dc_buf *buf = mem_priv;
+
+	if (WARN_ON(!buf->db_attach)) {
+		mtk_v4l2_err("trying to pin a non attached buffer\n");
+		return -EINVAL;
+	}
+
+	if (WARN_ON(buf->dma_addr)) {
+		mtk_v4l2_err("dmabuf buffer is already pinned\n");
+		return 0;
+	}
+
+	buf->dma_addr = dmabuf_to_secure_handle(buf->db_attach->dmabuf);
+	buf->dma_sgt = NULL;
+	buf->vaddr = NULL;
+
+	return 0;
+}
+
+static void mtk_venc_sec_dc_unmap_dmabuf(void *mem_priv)
+{
+	struct vb2_dc_buf *buf = mem_priv;
+
+	if (WARN_ON(!buf->db_attach)) {
+		mtk_v4l2_err("trying to unpin a not attached buffer\n");
+		return;
+	}
+
+	if (WARN_ON(!buf->dma_addr)) {
+		mtk_v4l2_err("dmabuf buffer is already unpinned\n");
+		return;
+	}
+
+	if (buf->vaddr) {
+		mtk_v4l2_err("dmabuf buffer vaddr not null\n");
+		dma_buf_vunmap(buf->db_attach->dmabuf, buf->vaddr);
+		buf->vaddr = NULL;
+	}
+
+	buf->dma_addr = 0;
+	buf->dma_sgt = NULL;
+}
+
+static bool mtk_venc_is_vcu(void)
+{
+	if (VCU_FPTR(vcu_get_plat_device)) {
+		if (mtk_vcodec_vcp & (1 << MTK_INST_ENCODER))
+			return false;
+		else
+			return true;
+	}
+	return false;
+}
+
+static void set_venc_vcp_data(struct mtk_vcodec_ctx *ctx, enum vcp_reserve_mem_id_t id)
+{
+	struct venc_enc_param *enc_prm = NULL;
+
+	enc_prm = kzalloc(sizeof(*enc_prm), GFP_KERNEL);
+	if (!enc_prm)
+		return;
+
+	if (id == VENC_SET_PROP_MEM_ID) {
+
+		sprintf(enc_prm->set_vcp_buf, "%s", mtk_venc_property);
+		mtk_v4l2_debug(3, "[%d] mtk_venc_property %s", ctx->id, enc_prm->set_vcp_buf);
+		mtk_v4l2_debug(3, "[%d] mtk_venc_property_prev %s",
+					ctx->id, mtk_venc_property_prev);
+
+		// set vcp log every time
+		if (/* strcmp(mtk_venc_property_prev, enc_prm->set_vcp_buf) != 0 && */
+			strlen(enc_prm->set_vcp_buf) != 0) {
+
+			if (venc_if_set_param(ctx,
+				VENC_SET_PARAM_PROPERTY,
+				enc_prm) != 0) {
+				mtk_v4l2_err("Error!! Cannot set venc property");
+				goto err_set_vcp_data;
+			}
+			strcpy(mtk_venc_property_prev, enc_prm->set_vcp_buf);
+		}
+	} else if (id == VENC_VCP_LOG_INFO_ID) {
+
+		sprintf(enc_prm->set_vcp_buf, "%s", mtk_venc_vcp_log);
+		mtk_v4l2_debug(3, "[%d] mtk_venc_vcp_log %s", ctx->id, enc_prm->set_vcp_buf);
+		mtk_v4l2_debug(3, "[%d] mtk_venc_vcp_log_prev %s", ctx->id, mtk_venc_vcp_log_prev);
+
+		// set vcp log every time
+		if (/* strcmp(mtk_venc_vcp_log_prev, enc_prm->set_vcp_buf) != 0 && */
+			strlen(enc_prm->set_vcp_buf) != 0) {
+
+			if (venc_if_set_param(ctx,
+				VENC_SET_PARAM_VCP_LOG_INFO,
+				enc_prm) != 0) {
+				mtk_v4l2_err("Error!! Cannot set venc vcp log info");
+				goto err_set_vcp_data;
+			}
+			strcpy(mtk_venc_vcp_log_prev, enc_prm->set_vcp_buf);
+		}
+	}
+
+err_set_vcp_data:
+	kfree(enc_prm);
+}
+
+static void set_vcu_vpud_log(struct mtk_vcodec_ctx *ctx, void *in)
+{
+	struct venc_enc_param *enc_prm = NULL;
+
+	if (!mtk_venc_is_vcu()) {
+		mtk_v4l2_err("only support on vcu enc path");
+		return;
+	}
+
+	enc_prm = kzalloc(sizeof(*enc_prm), GFP_KERNEL);
+	if (!enc_prm)
+		return;
+
+	enc_prm->log = (char *)in;
+	venc_if_set_param(ctx, VENC_SET_PARAM_VCU_VPUD_LOG, enc_prm);
+	kfree(enc_prm);
+}
+
+static void get_vcu_vpud_log(struct mtk_vcodec_ctx *ctx, void *out)
+{
+	if (!mtk_venc_is_vcu()) {
+		mtk_v4l2_err("only support on vcu dec path");
+		return;
+	}
+
+	venc_if_get_param(ctx, GET_PARAM_VENC_VCU_VPUD_LOG, out);
+}
+
+
+static void get_supported_format(struct mtk_vcodec_ctx *ctx)
+{
+	unsigned int i;
+
+	if (mtk_venc_formats[0].fourcc == 0) {
+		if (venc_if_get_param(ctx,
+			GET_PARAM_VENC_CAP_SUPPORTED_FORMATS,
+			&mtk_venc_formats) != 0) {
+			mtk_v4l2_err("Error!! Cannot get supported format");
+			return;
+		}
+		for (i = 0; i < MTK_MAX_ENC_CODECS_SUPPORT; i++) {
+			if (mtk_venc_formats[i].fourcc != 0 &&
+			    mtk_venc_formats[i].type == MTK_FMT_FRAME) {
+				default_out_fmt_idx = i;
+				break;
+			}
+		}
+		for (i = 0; i < MTK_MAX_ENC_CODECS_SUPPORT; i++) {
+			if (mtk_venc_formats[i].fourcc != 0 &&
+			    mtk_venc_formats[i].type == MTK_FMT_ENC) {
+				default_cap_fmt_idx = i;
+				break;
+			}
+		}
+	}
+}
+
+static void get_supported_framesizes(struct mtk_vcodec_ctx *ctx)
+{
+	unsigned int i;
+
+	if (mtk_venc_framesizes[0].fourcc == 0) {
+		if (venc_if_get_param(ctx, GET_PARAM_VENC_CAP_FRAME_SIZES,
+				      &mtk_venc_framesizes) != 0) {
+			mtk_v4l2_err("[%d] Error!! Cannot get frame size",
+				ctx->id);
+			return;
+		}
+
+		for (i = 0; i < MTK_MAX_ENC_CODECS_SUPPORT; i++) {
+			if (mtk_venc_framesizes[i].fourcc != 0) {
+				mtk_v4l2_debug(1,
+				"venc_fs[%d] fourcc %d s %d %d %d %d %d %d\n",
+				i, mtk_venc_framesizes[i].fourcc,
+				mtk_venc_framesizes[i].stepwise.min_width,
+				mtk_venc_framesizes[i].stepwise.max_width,
+				mtk_venc_framesizes[i].stepwise.step_width,
+				mtk_venc_framesizes[i].stepwise.min_height,
+				mtk_venc_framesizes[i].stepwise.max_height,
+				mtk_venc_framesizes[i].stepwise.step_height);
+			}
+		}
+	}
+}
+
+static void get_free_buffers(struct mtk_vcodec_ctx *ctx,
+				struct venc_done_result *pResult)
+{
+	venc_if_get_param(ctx,
+		GET_PARAM_FREE_BUFFERS,
+		pResult);
+}
+
+void mtk_enc_put_buf(struct mtk_vcodec_ctx *ctx)
+{
+	struct venc_done_result rResult;
+	struct venc_frm_buf *pfrm;
+	struct mtk_vcodec_mem *pbs;
+	struct mtk_video_enc_buf *bs_info, *frm_info;
+	struct vb2_v4l2_buffer *dst_vb2_v4l2, *src_vb2_v4l2;
+	struct vb2_buffer *dst_buf;
+	char *pbuf;
+	int dump_size;
+	int i;
+	char debug_fb[200] = {0};
+
+	mutex_lock(&ctx->buf_lock);
+	do {
+		dst_vb2_v4l2 = NULL;
+		src_vb2_v4l2 = NULL;
+		pfrm = NULL;
+		pbs = NULL;
+
+		memset(&rResult, 0, sizeof(rResult));
+		get_free_buffers(ctx, &rResult);
+
+		if (rResult.bs_va != 0 && virt_addr_valid(rResult.bs_va)) {
+			pbs = (struct mtk_vcodec_mem *)rResult.bs_va;
+			bs_info = container_of(pbs,
+				struct mtk_video_enc_buf, bs_buf);
+			dst_vb2_v4l2 = &bs_info->vb;
+		}
+
+		if (rResult.frm_va != 0 && virt_addr_valid(rResult.frm_va)) {
+			pfrm = (struct venc_frm_buf *)rResult.frm_va;
+			frm_info = container_of(pfrm,
+				struct mtk_video_enc_buf, frm_buf);
+			src_vb2_v4l2 = &frm_info->vb;
+
+			if (rResult.flags & VENC_FLAG_ENCODE_TIMEOUT && pfrm->fb_addr[0].va != 0) {
+				mtk_v4l2_err("Venc Timeout Dump Framebuf %d VA=%p PA=%llx Size=0x%zx =>",
+				pfrm->index,
+				pfrm->fb_addr[0].va,
+				(u64)pfrm->fb_addr[0].dma_addr,
+				pfrm->fb_addr[0].size);
+
+				pbuf = (char *)pfrm->fb_addr[0].va;
+				dump_size = pfrm->fb_addr[0].size < 256 ? pfrm->fb_addr[i].size: 256;
+				for (i = 0; i < dump_size; i++) {
+					SPRINTF(debug_fb, "%s %02x", debug_fb, pbuf[i]);
+					if ((i + 1) % 16 == 0 || i == dump_size - 1) {
+						mtk_v4l2_err("%s", debug_fb);
+						memset(debug_fb, 0, ARRAY_SIZE(debug_fb));
+					}
+				}
+			}
+		}
+
+		if (src_vb2_v4l2 != NULL && dst_vb2_v4l2 != NULL) {
+			if (rResult.is_key_frm)
+				dst_vb2_v4l2->flags |= V4L2_BUF_FLAG_KEYFRAME;
+
+			dst_vb2_v4l2->vb2_buf.timestamp =
+				src_vb2_v4l2->vb2_buf.timestamp;
+			dst_vb2_v4l2->timecode = src_vb2_v4l2->timecode;
+			dst_vb2_v4l2->sequence = src_vb2_v4l2->sequence;
+			dst_buf = &dst_vb2_v4l2->vb2_buf;
+			dst_buf->planes[0].bytesused = rResult.bs_size;
+			v4l2_m2m_buf_done(src_vb2_v4l2, VB2_BUF_STATE_DONE);
+			v4l2_m2m_buf_done(dst_vb2_v4l2, VB2_BUF_STATE_DONE);
+
+			mtk_v4l2_debug(1, "venc_if_encode bs size=%d",
+				rResult.bs_size);
+		} else if (src_vb2_v4l2 == NULL && dst_vb2_v4l2 != NULL) {
+			dst_buf = &dst_vb2_v4l2->vb2_buf;
+			dst_buf->planes[0].bytesused = rResult.bs_size;
+			v4l2_m2m_buf_done(dst_vb2_v4l2,
+					VB2_BUF_STATE_DONE);
+			mtk_v4l2_debug(0, "[Warning] bs size=%d, frm NULL!!",
+				rResult.bs_size);
+		} else {
+			if (src_vb2_v4l2 == NULL)
+				mtk_v4l2_debug(1, "NULL enc src buffer\n");
+
+			if (dst_vb2_v4l2 == NULL)
+				mtk_v4l2_debug(1, "NULL enc dst buffer\n");
+		}
+	} while (rResult.bs_va != 0 || rResult.frm_va != 0);
+	mutex_unlock(&ctx->buf_lock);
+}
+
+static struct mtk_video_fmt *mtk_venc_find_format(struct v4l2_format *f,
+						  unsigned int t)
+{
+	struct mtk_video_fmt *fmt;
+	unsigned int k;
+
+	mtk_v4l2_debug(3, "fourcc %d", f->fmt.pix_mp.pixelformat);
+	for (k = 0; k < MTK_MAX_ENC_CODECS_SUPPORT &&
+	     mtk_venc_formats[k].fourcc != 0; k++) {
+		fmt = &mtk_venc_formats[k];
+		if (fmt->fourcc == f->fmt.pix.pixelformat && fmt->type == t)
+			return fmt;
+	}
+
+	return NULL;
+}
+
+static int vidioc_venc_check_supported_profile_level(__u32 fourcc,
+	unsigned int pl, bool is_profile)
+{
+	struct v4l2_format f;
+	int i = 0;
+
+	f.fmt.pix.pixelformat = fourcc;
+	if (mtk_venc_find_format(&f, MTK_FMT_ENC) == NULL)
+		return false;
+
+	for (i = 0; i < MTK_MAX_ENC_CODECS_SUPPORT; i++) {
+		if (mtk_venc_framesizes[i].fourcc == fourcc) {
+			if (is_profile) {
+				if (mtk_venc_framesizes[i].profile & (1 << pl))
+					return true;
+				else
+					return false;
+			} else {
+				if (mtk_venc_framesizes[i].level >= pl)
+					return true;
+				else
+					return false;
+			}
+		}
+	}
+	return false;
+}
 
 static int vidioc_venc_s_ctrl(struct v4l2_ctrl *ctrl)
 {
@@ -661,6 +992,256 @@ static int vidioc_venc_qbuf(struct file *file, void *priv,
 		return -EIO;
 	}
 
+	// Check if need to proceed cache operations
+	vq = v4l2_m2m_get_vq(ctx->m2m_ctx, buf->type);
+	if (buf->index >= vq->num_buffers) {
+		mtk_v4l2_err("[%d] buffer index %d out of range %d",
+			ctx->id, buf->index, vq->num_buffers);
+		return -EINVAL;
+	}
+	vb = vq->bufs[buf->index];
+	vb2_v4l2 = container_of(vb, struct vb2_v4l2_buffer, vb2_buf);
+	mtkbuf = container_of(vb2_v4l2, struct mtk_video_enc_buf, vb);
+
+	if (buf->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
+		if (IS_ERR_OR_NULL(buf->m.planes)) {
+			mtk_v4l2_err("[%d] buffer planes address %p %llx can not access",
+				ctx->id, buf->m.planes, buf->m.planes);
+			return -EIO;
+		}
+		if (buf->m.planes[0].bytesused == 0) {
+			mtkbuf->lastframe = EOS;
+			mtk_v4l2_debug(1, "[%d] index=%d Eos FB(%d,%d) vb=%p pts=%llu",
+				ctx->id, buf->index,
+				buf->bytesused,
+				buf->length, vb, vb->timestamp);
+		} else if (buf->flags & V4L2_BUF_FLAG_LAST) {
+			mtkbuf->lastframe = EOS_WITH_DATA;
+			mtk_v4l2_debug(1, "[%d] id=%d EarlyEos FB(%d,%d) vb=%p pts=%llu",
+				ctx->id, buf->index, buf->m.planes[0].bytesused,
+				buf->length, vb, vb->timestamp);
+		} else {
+			mtkbuf->lastframe = NON_EOS;
+			mtk_v4l2_debug(1, "[%d] id=%d getdata FB(%d,%d) vb=%p pts=%llu ",
+				ctx->id, buf->index,
+				buf->m.planes[0].bytesused,
+				buf->length, mtkbuf, vb->timestamp);
+		}
+	} else
+		mtk_v4l2_debug(1, "[%d] id=%d BS (%d) vb=%p",
+				ctx->id, buf->index,
+				buf->length, mtkbuf);
+
+	if (buf->flags & V4L2_BUF_FLAG_NO_CACHE_CLEAN) {
+		mtk_v4l2_debug(4, "[%d] No need for Cache clean, buf->index:%d. mtkbuf:%p",
+		   ctx->id, buf->index, mtkbuf);
+		mtkbuf->flags |= NO_CAHCE_CLEAN;
+	}
+
+	if (buf->flags & V4L2_BUF_FLAG_NO_CACHE_INVALIDATE) {
+		mtk_v4l2_debug(4, "[%d] No need for Cache invalidate, buf->index:%d. mtkbuf:%p",
+		   ctx->id, buf->index, mtkbuf);
+		mtkbuf->flags |= NO_CAHCE_INVALIDATE;
+	}
+
+	mtkbuf->frm_buf.has_qpmap = 0;
+	mtkbuf->frm_buf.has_meta = 0;
+	mtkbuf->frm_buf.qpmap_dma = 0;
+	mtkbuf->frm_buf.metabuffer_dma = 0;
+
+	if (buf->flags & V4L2_BUF_FLAG_HDR_META && buf->reserved != 0) {
+		mtkbuf->frm_buf.has_meta = 1;
+		mtkbuf->frm_buf.meta_dma = dma_buf_get(buf->reserved);
+
+		if (IS_ERR(mtkbuf->frm_buf.meta_dma)) {
+			mtk_v4l2_err("%s meta_dma is err 0x%p.\n", __func__,
+				mtkbuf->frm_buf.meta_dma);
+
+			mtk_venc_queue_error_event(ctx);
+			return -EINVAL;
+		}
+
+		mtkbuf->frm_buf.buf_att = dma_buf_attach(mtkbuf->frm_buf.meta_dma,
+			&ctx->dev->plat_dev->dev);
+		mtkbuf->frm_buf.sgt = dma_buf_map_attachment(mtkbuf->frm_buf.buf_att,
+			DMA_TO_DEVICE);
+		if (IS_ERR_OR_NULL(mtkbuf->frm_buf.sgt)) {
+			mtk_v4l2_err("dma_buf_map_attachment fail %d.\n",
+				mtkbuf->frm_buf.sgt);
+			dma_buf_detach(mtkbuf->frm_buf.meta_dma, mtkbuf->frm_buf.buf_att);
+			return -EINVAL;
+		}
+		mtkbuf->frm_buf.meta_addr = sg_dma_address(mtkbuf->frm_buf.sgt->sgl);
+
+		mtk_v4l2_debug(1, "[%d] Have HDR info meta fd, buf->index:%d. mtkbuf:%p, fd:%u",
+			ctx->id, buf->index, mtkbuf, buf->reserved);
+	}
+
+	if (buf->flags & V4L2_BUF_FLAG_QP_META &&
+		buf->reserved > 0 &&
+		buf->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
+		struct device *dev = NULL;
+
+		mtkbuf->frm_buf.qpmap_dma = dma_buf_get(buf->reserved);
+		if (IS_ERR(mtkbuf->frm_buf.qpmap_dma)) {
+			mtk_v4l2_err("%s qpmap_dma is err 0x%p.\n", __func__,
+				mtkbuf->frm_buf.qpmap_dma);
+			mtk_venc_queue_error_event(ctx);
+			return -EINVAL;
+		}
+
+		dev = ctx->m2m_ctx->cap_q_ctx.q.dev;
+		/* use vcp & vcu compatible access device */
+
+		mtkbuf->frm_buf.qpmap_dma_att = dma_buf_attach(mtkbuf->frm_buf.qpmap_dma,
+			dev);
+		mtkbuf->frm_buf.qpmap_sgt = dma_buf_map_attachment(mtkbuf->frm_buf.qpmap_dma_att,
+			DMA_TO_DEVICE);
+		if (IS_ERR_OR_NULL(mtkbuf->frm_buf.qpmap_sgt)) {
+			mtk_v4l2_err("dma_buf_map_attachment fail %d.\n",
+				mtkbuf->frm_buf.qpmap_sgt);
+			dma_buf_detach(mtkbuf->frm_buf.qpmap_dma, mtkbuf->frm_buf.qpmap_dma_att);
+			return -EINVAL;
+		}
+		mtkbuf->frm_buf.qpmap_dma_addr = sg_dma_address(mtkbuf->frm_buf.qpmap_sgt->sgl);
+		mtkbuf->frm_buf.has_qpmap = 1;
+		mtk_v4l2_debug(1, "[%d] Have Qpmap fd, buf->index:%d, qpmap_dma:%p, fd:%u",
+			ctx->id, buf->index, mtkbuf->frm_buf.qpmap_dma, buf->reserved);
+	}
+
+	if (buf->flags & V4L2_BUF_FLAG_HAS_META &&
+		buf->reserved > 0 &&
+		buf->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
+		struct dma_buf_attachment *meta_buf_att;
+		struct sg_table *meta_sgt;
+		struct metadata_info *meta_info;
+		void *meta_va = NULL;
+		int index = 0;
+		struct meta_describe meta_desc;
+		struct device *dev = NULL;
+
+		mtkbuf->frm_buf.metabuffer_dma = dma_buf_get(buf->reserved);
+		if (IS_ERR(mtkbuf->frm_buf.metabuffer_dma)) {
+			mtk_v4l2_err("%s metabuffer_dma is err 0x%p.\n", __func__,
+				mtkbuf->frm_buf.metabuffer_dma);
+			mtk_venc_queue_error_event(ctx);
+			return -EINVAL;
+		}
+
+		dev = ctx->m2m_ctx->cap_q_ctx.q.dev;
+		/* use vcp & vcu compatible access device */
+
+		meta_buf_att = dma_buf_attach(mtkbuf->frm_buf.metabuffer_dma,
+			dev);
+		meta_sgt = dma_buf_map_attachment(meta_buf_att, DMA_TO_DEVICE);
+		if (IS_ERR_OR_NULL(meta_sgt)) {
+			mtk_v4l2_err("dma_buf_map_attachment fail %d.\n", meta_sgt);
+			dma_buf_detach(mtkbuf->frm_buf.metabuffer_dma, meta_buf_att);
+			dma_buf_put(mtkbuf->frm_buf.metabuffer_dma);
+			return -EINVAL;
+		}
+
+		mtkbuf->frm_buf.metabuffer_addr = sg_dma_address(meta_sgt->sgl);
+		//check required size before doing va mapping
+		if (mtkbuf->frm_buf.metabuffer_dma->size < sizeof(struct metadata_info)) {
+			mtk_v4l2_err("V4L2_BUF_FLAG_HAS_META dma size check failed");
+			dma_buf_unmap_attachment(meta_buf_att, meta_sgt, DMA_TO_DEVICE);
+			dma_buf_detach(mtkbuf->frm_buf.metabuffer_dma, meta_buf_att);
+			dma_buf_put(mtkbuf->frm_buf.metabuffer_dma);
+			return -EINVAL;
+		}
+		meta_va = dma_buf_vmap(mtkbuf->frm_buf.metabuffer_dma);
+
+		mtk_v4l2_debug(2, "V4L2_BUF_FLAG_HAS_META  buf->reserved:%d dma_buf=%p, DMA=%lx",
+			buf->reserved, mtkbuf->frm_buf.metabuffer_dma,
+			(unsigned long)mtkbuf->frm_buf.metabuffer_addr);
+
+		if (meta_va) {
+			meta_info = (struct metadata_info *)meta_va;
+		} else {
+			mtk_v4l2_err("V4L2_BUF_FLAG_HAS_META meta_va is NULL");
+			dma_buf_unmap_attachment(meta_buf_att, meta_sgt, DMA_TO_DEVICE);
+			dma_buf_detach(mtkbuf->frm_buf.metabuffer_dma, meta_buf_att);
+			dma_buf_put(mtkbuf->frm_buf.metabuffer_dma);
+			return -EINVAL;
+		}
+
+		for (; index < MTK_MAX_METADATA_NUM; index++) {
+			memset(&meta_desc, 0, sizeof(meta_desc));
+			meta_desc.invalid = meta_info->metadata_dsc[index].invalid;
+			if (!meta_desc.invalid)
+				break;
+
+			meta_desc.fd_flag = meta_info->metadata_dsc[index].fd_flag;
+			meta_desc.type = meta_info->metadata_dsc[index].type;
+			meta_desc.size = meta_info->metadata_dsc[index].size;
+			meta_desc.value = meta_info->metadata_dsc[index].value;
+
+			mtk_v4l2_debug(1, "meta data info,index:%d fd_flag:%u type:%u size:%u val:%u)",
+				index, meta_desc.fd_flag, meta_desc.type,
+				meta_desc.size, meta_desc.value);
+
+			if (meta_desc.type == METADATA_QPMAP && !meta_desc.fd_flag) {
+				mtk_v4l2_err("qpmap should provide buffer fd");
+				continue;
+			} else if (meta_desc.type == METADATA_HDR && meta_desc.fd_flag) {
+				mtk_v4l2_err("hdr should not provide buffer fd");
+				continue;
+			}
+
+			if (meta_desc.fd_flag) {
+				if (meta_desc.type == METADATA_QPMAP) {
+					struct dma_buf_attachment *qpmap_buf_att;
+					struct sg_table *qpmap_meta_sgt;
+
+					mtkbuf->frm_buf.qpmap_dma = dma_buf_get(meta_desc.value);
+
+					if (IS_ERR(mtkbuf->frm_buf.qpmap_dma)) {
+						mtk_v4l2_err("%s qpmap_dma is err 0x%p.\n",
+							__func__, mtkbuf->frm_buf.qpmap_dma);
+						mtk_venc_queue_error_event(ctx);
+						continue;
+					}
+
+					qpmap_buf_att = dma_buf_attach(mtkbuf->frm_buf.qpmap_dma,
+						dev);
+					qpmap_meta_sgt = dma_buf_map_attachment(qpmap_buf_att,
+						DMA_TO_DEVICE);
+					if (IS_ERR_OR_NULL(qpmap_meta_sgt)) {
+						mtk_v4l2_err("dma_buf_map_attachment fail %d.\n",
+							qpmap_meta_sgt);
+						dma_buf_detach(mtkbuf->frm_buf.qpmap_dma,
+							qpmap_buf_att);
+						dma_buf_put(mtkbuf->frm_buf.qpmap_dma);
+						continue;
+					}
+					mtkbuf->frm_buf.qpmap_dma_addr =
+						sg_dma_address(qpmap_meta_sgt->sgl);
+					mtkbuf->frm_buf.has_qpmap = 1;
+					dma_buf_unmap_attachment(qpmap_buf_att,
+						qpmap_meta_sgt, DMA_TO_DEVICE);
+					dma_buf_detach(mtkbuf->frm_buf.qpmap_dma, qpmap_buf_att);
+					mtk_v4l2_debug(2, "[%d] Have Qpmap fd, buf->index:%d. qpmap_dma:%p, fd:%u",
+						ctx->id, buf->index,
+						mtkbuf->frm_buf.qpmap_dma, meta_desc.value);
+				}
+			} else {
+				if (meta_desc.type == METADATA_HDR) {
+					mtkbuf->frm_buf.has_meta = 1;
+					mtkbuf->frm_buf.meta_dma = mtkbuf->frm_buf.metabuffer_dma;
+					mtkbuf->frm_buf.meta_addr =
+						mtkbuf->frm_buf.metabuffer_addr + meta_desc.value;
+					//vpud use fd to get va and pa,we should add a
+					//offset to get real address of hdr
+					mtkbuf->frm_buf.meta_offset = meta_desc.value;
+				}
+			}
+		}
+		dma_buf_vunmap(mtkbuf->frm_buf.metabuffer_dma, meta_va);
+		dma_buf_unmap_attachment(meta_buf_att, meta_sgt, DMA_TO_DEVICE);
+		dma_buf_detach(mtkbuf->frm_buf.metabuffer_dma, meta_buf_att);
+	}
+
 	return v4l2_m2m_qbuf(file, ctx->m2m_ctx, buf);
 }
 
@@ -736,8 +1317,13 @@ static int vb2ops_venc_queue_setup(struct vb2_queue *vq,
 				return -EINVAL;
 	} else {
 		*nplanes = q_data->fmt->num_planes;
-		for (i = 0; i < *nplanes; i++)
+		for (i = 0; i < *nplanes; i++) {
 			sizes[i] = q_data->sizeimage[i];
+			if (sizes[i] == 0) {
+				mtk_v4l2_err("plane size[%d] is 0", i);
+				return -EINVAL;
+			}
+		}
 	}
 
 	return 0;
@@ -834,6 +1420,12 @@ static int vb2ops_venc_start_streaming(struct vb2_queue *q, unsigned int count)
 		ctx->state = MTK_STATE_HEADER;
 	}
 
+	mutex_lock(&ctx->dev->enc_dvfs_mutex);
+	mtk_venc_dvfs_begin_inst(ctx);
+	mtk_venc_pmqos_begin_inst(ctx);
+	mutex_unlock(&ctx->dev->enc_dvfs_mutex);
+
+	kfree(param);
 	return 0;
 
 err_set_param:
@@ -1065,9 +1657,146 @@ static void mtk_venc_worker(struct work_struct *work)
 		frm_buf.fb_addr[i].size =
 				(size_t)src_buf->vb2_buf.planes[i].length;
 	}
-	bs_buf.va = vb2_plane_vaddr(&dst_buf->vb2_buf, 0);
-	bs_buf.dma_addr = vb2_dma_contig_plane_dma_addr(&dst_buf->vb2_buf, 0);
-	bs_buf.size = (size_t)dst_buf->vb2_buf.planes[0].length;
+	src_buf = &src_vb2_v4l2->vb2_buf;
+	dst_buf = &dst_vb2_v4l2->vb2_buf;
+
+	src_buf_info = container_of(src_vb2_v4l2, struct mtk_video_enc_buf, vb);
+	dst_buf_info = container_of(dst_vb2_v4l2, struct mtk_video_enc_buf, vb);
+
+	pbs_buf = &dst_buf_info->bs_buf;
+	pfrm_buf = &src_buf_info->frm_buf;
+
+	if (mtk_v4l2_dbg_level > 0)
+		pbs_buf->va = vb2_plane_vaddr(dst_buf, 0);
+	pbs_buf->dma_addr = vb2_dma_contig_plane_dma_addr(dst_buf, 0);
+	pbs_buf->size = (size_t)dst_buf->planes[0].length;
+	pbs_buf->dmabuf = dst_buf->planes[0].dbuf;
+	pbs_buf->index = dst_buf->index;
+	ctx->bs_list[pbs_buf->index + 1] = (uintptr_t)pbs_buf;
+
+	if (src_buf_info->lastframe == EOS) {
+		src_buf_info->lastframe = NON_EOS;
+		if (ctx->oal_vcodec == 1) {
+			ret = venc_if_encode(ctx,
+					 VENC_START_OPT_ENCODE_FRAME_FINAL,
+					 NULL, pbs_buf, &enc_result);
+
+			pend_src_vb2_v4l2 =
+				to_vb2_v4l2_buffer(ctx->pend_src_buf);
+			dst_vb2_v4l2->flags |= pend_src_vb2_v4l2->flags;
+			dst_vb2_v4l2->vb2_buf.timestamp =
+				pend_src_vb2_v4l2->vb2_buf.timestamp;
+			dst_vb2_v4l2->timecode = pend_src_vb2_v4l2->timecode;
+			dst_vb2_v4l2->sequence = pend_src_vb2_v4l2->sequence;
+			dst_vb2_v4l2->flags |= V4L2_BUF_FLAG_LAST;
+			if (enc_result.is_key_frm)
+				dst_vb2_v4l2->flags |= V4L2_BUF_FLAG_KEYFRAME;
+
+			if (ret) {
+				dst_buf->planes[0].bytesused = 0;
+				v4l2_m2m_buf_done(pend_src_vb2_v4l2,
+						VB2_BUF_STATE_ERROR);
+				v4l2_m2m_buf_done(dst_vb2_v4l2,
+						VB2_BUF_STATE_ERROR);
+				mtk_v4l2_err("last venc_if_encode failed=%d",
+									ret);
+				if (ret == -EIO) {
+					ctx->state = MTK_STATE_ABORT;
+					mtk_venc_queue_error_event(ctx);
+					venc_check_release_lock(ctx);
+				}
+			} else {
+				dst_buf->planes[0].bytesused =
+							enc_result.bs_size;
+				v4l2_m2m_buf_done(pend_src_vb2_v4l2,
+							VB2_BUF_STATE_DONE);
+				v4l2_m2m_buf_done(dst_vb2_v4l2,
+							VB2_BUF_STATE_DONE);
+			}
+
+			ctx->pend_src_buf = NULL;
+		} else {
+			ret = venc_if_encode(ctx,
+					VENC_START_OPT_ENCODE_FRAME_FINAL,
+					NULL, NULL, &enc_result);
+			dst_vb2_v4l2->vb2_buf.timestamp =
+				src_vb2_v4l2->vb2_buf.timestamp;
+			dst_vb2_v4l2->timecode = src_vb2_v4l2->timecode;
+			dst_vb2_v4l2->flags |= V4L2_BUF_FLAG_LAST;
+			dst_buf->planes[0].bytesused = 0;
+
+			if (ret) {
+				mtk_v4l2_err("last venc_if_encode failed=%d",
+									ret);
+				if (ret == -EIO) {
+					ctx->state = MTK_STATE_ABORT;
+					mtk_venc_queue_error_event(ctx);
+					venc_check_release_lock(ctx);
+				}
+			} else if (!ctx->async_mode)
+				mtk_enc_put_buf(ctx);
+
+			mtk_venc_check_queue_cnt(ctx, src_buf->vb2_queue);
+			mtk_venc_check_queue_cnt(ctx, dst_buf->vb2_queue);
+
+			v4l2_m2m_buf_done(dst_vb2_v4l2,
+				VB2_BUF_STATE_DONE);
+		}
+		mtk_vdec_queue_stop_enc_event(ctx);
+
+		if (src_buf->planes[0].bytesused == 0U) {
+			src_vb2_v4l2->flags |= V4L2_BUF_FLAG_LAST;
+			vb2_set_plane_payload(&src_buf_info->vb.vb2_buf, 0, 0);
+			v4l2_m2m_buf_done(src_vb2_v4l2,
+				VB2_BUF_STATE_DONE);
+		}
+		v4l2_m2m_job_finish(ctx->dev->m2m_dev_enc, ctx->m2m_ctx);
+		mutex_unlock(&ctx->worker_lock);
+		return;
+	} else if (src_buf_info->lastframe == EOS_WITH_DATA) {
+		/*
+		 * Getting early eos frame buffer, after encode this
+		 * buffer, need to flush encoder. Use the flush_buf
+		 * as normal EOS, and flush encoder.
+		 */
+		mtk_v4l2_debug(0, "[%d] EarlyEos: encode last frame %d",
+			ctx->id, src_buf->planes[0].bytesused);
+		if (ctx->enc_flush_buf->lastframe == NON_EOS) {
+			ctx->enc_flush_buf->lastframe = EOS;
+			src_vb2_v4l2->flags |= V4L2_BUF_FLAG_LAST;
+			dst_vb2_v4l2->flags |= V4L2_BUF_FLAG_LAST;
+			v4l2_m2m_buf_queue_check(ctx->m2m_ctx, &ctx->enc_flush_buf->vb);
+		} else {
+			mtk_v4l2_debug(1, "Stopping no need to queue enc_flush_buf.");
+		}
+	}
+
+	for (i = 0; i < src_buf->num_planes ; i++) {
+		// always map va for fb dump when encode timeout
+		pfrm_buf->fb_addr[i].va = vb2_plane_vaddr(src_buf, i) +
+			(size_t)src_buf->planes[i].data_offset;
+		pfrm_buf->fb_addr[i].dma_addr =
+			vb2_dma_contig_plane_dma_addr(src_buf, i) +
+			(size_t)src_buf->planes[i].data_offset;
+		pfrm_buf->fb_addr[i].size =
+				(size_t)(src_buf->planes[i].bytesused-
+				src_buf->planes[i].data_offset);
+		pfrm_buf->fb_addr[i].dmabuf =
+				src_buf->planes[i].dbuf;
+		pfrm_buf->fb_addr[i].data_offset =
+				src_buf->planes[i].data_offset;
+
+		mtk_v4l2_debug(2, "fb_addr[%d].va %p, offset %d, dma_addr %p, size %d\n",
+			i, pfrm_buf->fb_addr[i].va,
+			src_buf->planes[i].data_offset,
+			(void *)pfrm_buf->fb_addr[i].dma_addr,
+			(int)pfrm_buf->fb_addr[i].size);
+	}
+	pfrm_buf->num_planes = src_buf->num_planes;
+	pfrm_buf->timestamp = src_vb2_v4l2->vb2_buf.timestamp;
+	pfrm_buf->index = src_buf->index;
+	ctx->fb_list[pfrm_buf->index + 1] = (uintptr_t)pfrm_buf;
+	length = q_data_src->coded_width * q_data_src->coded_height;
 
 	mtk_v4l2_debug(2,
 			"Framebuf PA=%llx Size=0x%zx;PA=0x%llx Size=0x%zx;PA=0x%llx Size=%zu",
@@ -1241,11 +1970,411 @@ int mtk_vcodec_enc_ctrls_setup(struct mtk_vcodec_ctx *ctx)
 			V4L2_MPEG_VIDEO_HEADER_MODE_JOINED_WITH_1ST_FRAME,
 			0, V4L2_MPEG_VIDEO_HEADER_MODE_SEPARATE);
 	v4l2_ctrl_new_std_menu(handler, ops, V4L2_CID_MPEG_VIDEO_H264_PROFILE,
-			V4L2_MPEG_VIDEO_H264_PROFILE_HIGH,
-			0, V4L2_MPEG_VIDEO_H264_PROFILE_HIGH);
+		V4L2_MPEG_VIDEO_H264_PROFILE_HIGH_10,
+		0, V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE);
+	v4l2_ctrl_new_std_menu(handler, ops, V4L2_CID_MPEG_VIDEO_HEVC_PROFILE,
+		V4L2_MPEG_VIDEO_HEVC_PROFILE_MAIN,
+		0, V4L2_MPEG_VIDEO_HEVC_PROFILE_MAIN);
+	v4l2_ctrl_new_std_menu(handler, ops, V4L2_CID_MPEG_VIDEO_MPEG4_PROFILE,
+		V4L2_MPEG_VIDEO_MPEG4_PROFILE_SIMPLE,
+		0, V4L2_MPEG_VIDEO_MPEG4_PROFILE_SIMPLE);
 	v4l2_ctrl_new_std_menu(handler, ops, V4L2_CID_MPEG_VIDEO_H264_LEVEL,
-			V4L2_MPEG_VIDEO_H264_LEVEL_4_2,
-			0, V4L2_MPEG_VIDEO_H264_LEVEL_4_0);
+		V4L2_MPEG_VIDEO_H264_LEVEL_6_2,
+		0, V4L2_MPEG_VIDEO_H264_LEVEL_1_0);
+	v4l2_ctrl_new_std_menu(handler, ops,
+		V4L2_CID_MPEG_VIDEO_HEVC_LEVEL,
+		V4L2_MPEG_VIDEO_HEVC_LEVEL_6_2,
+		0, V4L2_MPEG_VIDEO_HEVC_LEVEL_1);
+	v4l2_ctrl_new_std_menu(handler, ops,
+		V4L2_CID_MPEG_VIDEO_HEVC_TIER,
+		V4L2_MPEG_VIDEO_HEVC_TIER_HIGH,
+		0, V4L2_MPEG_VIDEO_HEVC_TIER_MAIN);
+	v4l2_ctrl_new_std_menu(handler, ops, V4L2_CID_MPEG_VIDEO_MPEG4_LEVEL,
+		V4L2_MPEG_VIDEO_MPEG4_LEVEL_5,
+		0, V4L2_MPEG_VIDEO_MPEG4_LEVEL_0);
+	if (handler->error)
+		mtk_v4l2_debug(0, "Adding control failed V4L2_CID_MPEG_VIDEO_MPEG4_LEVEL %x %d",
+			 V4L2_CID_MPEG_VIDEO_MPEG4_LEVEL, handler->error);
+
+	v4l2_ctrl_new_std_menu(handler, ops, V4L2_CID_MPEG_VIDEO_BITRATE_MODE,
+		V4L2_MPEG_VIDEO_BITRATE_MODE_CQ,
+		0, V4L2_MPEG_VIDEO_BITRATE_MODE_VBR);
+	if (handler->error)
+		mtk_v4l2_debug(0, "Adding control failed V4L2_CID_MPEG_VIDEO_BITRATE_MODE %x %d",
+			 V4L2_CID_MPEG_VIDEO_BITRATE_MODE, handler->error);
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_MTK_ENCODE_SCENARIO;
+	cfg.type = V4L2_CTRL_TYPE_INTEGER;
+	cfg.flags = V4L2_CTRL_FLAG_WRITE_ONLY;
+	cfg.name = "Video encode scenario";
+	cfg.min = 0;
+	cfg.max = 32;
+	cfg.step = 1;
+	cfg.def = 0;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_MTK_ENCODE_NONREFP;
+	cfg.type = V4L2_CTRL_TYPE_INTEGER;
+	cfg.flags = V4L2_CTRL_FLAG_WRITE_ONLY;
+	cfg.name = "Video encode nonrefp";
+	cfg.min = 0;
+	cfg.max = 32;
+	cfg.step = 1;
+	cfg.def = 0;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_MTK_ENCODE_NONREFP_FREQ;
+	cfg.type = V4L2_CTRL_TYPE_INTEGER;
+	cfg.flags = V4L2_CTRL_FLAG_WRITE_ONLY;
+	cfg.name = "Video encode nonrefp";
+	cfg.min = 0;
+	cfg.max = 32;
+	cfg.step = 1;
+	cfg.def = 0;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_MTK_ENCODE_DETECTED_FRAMERATE;
+	cfg.type = V4L2_CTRL_TYPE_INTEGER;
+	cfg.flags = V4L2_CTRL_FLAG_WRITE_ONLY;
+	cfg.name = "Video encode detect framerate";
+	cfg.min = 0;
+	cfg.max = 32;
+	cfg.step = 1;
+	cfg.def = 0;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_MTK_ENCODE_RFS_ON;
+	cfg.type = V4L2_CTRL_TYPE_INTEGER;
+	cfg.flags = V4L2_CTRL_FLAG_WRITE_ONLY;
+	cfg.name = "Video encode slice loss indication";
+	cfg.min = 0;
+	cfg.max = 1;
+	cfg.step = 1;
+	cfg.def = 0;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_VIDEO_PREPEND_SPSPPS_TO_IDR;
+	cfg.type = V4L2_CTRL_TYPE_INTEGER;
+	cfg.flags = V4L2_CTRL_FLAG_WRITE_ONLY;
+	cfg.name = "Video encode slice loss indication";
+	cfg.min = 0;
+	cfg.max = 1;
+	cfg.step = 1;
+	cfg.def = 0;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_MTK_ENCODE_OPERATION_RATE;
+	cfg.type = V4L2_CTRL_TYPE_INTEGER;
+	cfg.flags = V4L2_CTRL_FLAG_WRITE_ONLY;
+	cfg.name = "Video encode operation rate";
+	cfg.min = 0;
+	cfg.max = 2048;
+	cfg.step = 1;
+	cfg.def = 0;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_MTK_ENCODE_ROI_ON;
+	cfg.type = V4L2_CTRL_TYPE_INTEGER;
+	cfg.flags = V4L2_CTRL_FLAG_WRITE_ONLY;
+	cfg.name = "Video encode roi switch";
+	cfg.min = 0;
+	cfg.max = 8;
+	cfg.step = 1;
+	cfg.def = 0;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_MTK_ENCODE_GRID_SIZE;
+	cfg.type = V4L2_CTRL_TYPE_INTEGER;
+	cfg.flags = V4L2_CTRL_FLAG_WRITE_ONLY;
+	cfg.name = "Video encode heif grid size";
+	cfg.min = 0;
+	cfg.max = (3840<<16)+2176;
+	cfg.step = 16;
+	cfg.def = 0;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_MTK_COLOR_DESC;
+	cfg.type = V4L2_CTRL_TYPE_U32;
+	cfg.flags = V4L2_CTRL_FLAG_WRITE_ONLY;
+	cfg.name = "Video encode color description for HDR";
+	cfg.min = 0x00000000;
+	cfg.max = 0xffffffff;
+	cfg.step = 1;
+	cfg.def = 0;
+	cfg.ops = ops;
+	cfg.dims[0] = (sizeof(struct mtk_color_desc)/sizeof(u32));
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_MTK_MAX_WIDTH;
+	cfg.type = V4L2_CTRL_TYPE_INTEGER;
+	cfg.flags = V4L2_CTRL_FLAG_WRITE_ONLY;
+	cfg.name = "Video encode max width";
+	cfg.min = 0;
+	cfg.max = 3840;
+	cfg.step = 16;
+	cfg.def = 0;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_MTK_MAX_HEIGHT;
+	cfg.type = V4L2_CTRL_TYPE_INTEGER;
+	cfg.flags = V4L2_CTRL_FLAG_WRITE_ONLY;
+	cfg.name = "Video encode max height";
+	cfg.min = 0;
+	cfg.max = 3840;
+	cfg.step = 16;
+	cfg.def = 0;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	ctx->enc_params.i_qp = 51;
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_MTK_ENCODE_RC_I_FRAME_QP;
+	cfg.type = V4L2_CTRL_TYPE_INTEGER;
+	cfg.flags = V4L2_CTRL_FLAG_WRITE_ONLY;
+	cfg.name = "I-Frame QP Value";
+	cfg.min = 0;
+	cfg.max = 51;
+	cfg.step = 1;
+	cfg.def = ctx->enc_params.i_qp;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	ctx->enc_params.p_qp = 51;
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_MTK_ENCODE_RC_P_FRAME_QP;
+	cfg.type = V4L2_CTRL_TYPE_INTEGER;
+	cfg.flags = V4L2_CTRL_FLAG_WRITE_ONLY;
+	cfg.name = "P-Frame QP Value";
+	cfg.min = 0;
+	cfg.max = 51;
+	cfg.step = 1;
+	cfg.def = ctx->enc_params.p_qp;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	ctx->enc_params.b_qp = 51;
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_MTK_ENCODE_RC_B_FRAME_QP;
+	cfg.type = V4L2_CTRL_TYPE_INTEGER;
+	cfg.flags = V4L2_CTRL_FLAG_WRITE_ONLY;
+	cfg.name = "B-Frame QP Value";
+	cfg.min = 0;
+	cfg.max = 51;
+	cfg.step = 1;
+	cfg.def = ctx->enc_params.b_qp;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_MTK_SEC_ENCODE;
+	cfg.type = V4L2_CTRL_TYPE_INTEGER;
+	cfg.flags = V4L2_CTRL_FLAG_WRITE_ONLY;
+	cfg.name = "Video Sec Encode path";
+	cfg.min = 0;
+	cfg.max = 2;
+	cfg.step = 1;
+	cfg.def = 0;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	/* g_volatile_ctrl */
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_MTK_ENCODE_ROI_RC_QP;
+	cfg.type = V4L2_CTRL_TYPE_INTEGER;
+	cfg.flags = V4L2_CTRL_FLAG_VOLATILE |
+		V4L2_CTRL_FLAG_READ_ONLY;
+	cfg.name = "Video encode roi rc qp";
+	cfg.min = 0;
+	cfg.max = 2048;
+	cfg.step = 1;
+	cfg.def = 0;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_MTK_RESOLUTION_CHANGE;
+	cfg.type = V4L2_CTRL_TYPE_U32;
+	cfg.flags = V4L2_CTRL_FLAG_VOLATILE |
+		V4L2_CTRL_FLAG_READ_ONLY;
+	cfg.name = "Video encode resolution change";
+	cfg.min = 0x00000000;
+	cfg.max = 0x00ffffff;
+	cfg.step = 1;
+	cfg.def = 0;
+	cfg.ops = ops;
+	cfg.dims[0] = sizeof(struct venc_resolution_change)/sizeof(u32);
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_VIDEO_ENABLE_TSVC;
+	cfg.type = V4L2_CTRL_TYPE_U32;
+	cfg.flags = V4L2_CTRL_FLAG_WRITE_ONLY;
+	cfg.name = "Video encode tsvc";
+	cfg.min = 0;
+	cfg.max = 15;
+	cfg.step = 1;
+	cfg.def = 0;
+	cfg.dims[0] = 2;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_MTK_ENCODE_ENABLE_HIGHQUALITY;
+	cfg.type = V4L2_CTRL_TYPE_INTEGER;
+	cfg.flags = V4L2_CTRL_FLAG_WRITE_ONLY;
+	cfg.name = "Video encode enable highquality";
+	cfg.min = 0;
+	cfg.max = 1;
+	cfg.step = 1;
+	cfg.def = 0;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	ctx->enc_params.max_qp = -1;
+	cfg.id = V4L2_CID_MPEG_MTK_ENCODE_RC_MAX_QP;
+	cfg.type = V4L2_CTRL_TYPE_INTEGER;
+	cfg.flags = V4L2_CTRL_FLAG_WRITE_ONLY;
+	cfg.name = "Video encode max qp";
+	cfg.min = -1;
+	cfg.max = 51;
+	cfg.step = 1;
+	cfg.def = ctx->enc_params.max_qp;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	ctx->enc_params.min_qp = -1;
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_MTK_ENCODE_RC_MIN_QP;
+	cfg.type = V4L2_CTRL_TYPE_INTEGER;
+	cfg.flags = V4L2_CTRL_FLAG_WRITE_ONLY;
+	cfg.name = "Video encode min qp";
+	cfg.min = -1;
+	cfg.max = 51;
+	cfg.step = 1;
+	cfg.def = ctx->enc_params.min_qp;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	ctx->enc_params.ip_qpdelta = -1;
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_MTK_ENCODE_RC_I_P_QP_DELTA;
+	cfg.type = V4L2_CTRL_TYPE_INTEGER;
+	cfg.flags = V4L2_CTRL_FLAG_WRITE_ONLY;
+	cfg.name = "Video encode ip qp delta";
+	cfg.min = -1;
+	cfg.max = 51;
+	cfg.step = 1;
+	cfg.def = ctx->enc_params.ip_qpdelta;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	ctx->enc_params.framelvl_qp = -1;
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_MTK_ENCODE_RC_FRAME_LEVEL_QP;
+	cfg.type = V4L2_CTRL_TYPE_INTEGER;
+	cfg.flags = V4L2_CTRL_FLAG_WRITE_ONLY;
+	cfg.name = "Video encode frame level qp";
+	cfg.min = -1;
+	cfg.max = 51;
+	cfg.step = 1;
+	cfg.def = ctx->enc_params.framelvl_qp;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_MTK_ENCODE_RC_QP_CONTROL_MODE;
+	cfg.type = V4L2_CTRL_TYPE_INTEGER;
+	cfg.flags = V4L2_CTRL_FLAG_WRITE_ONLY;
+	cfg.name = "Video encode qp control mode";
+	cfg.min = 0;
+	cfg.max = 8;
+	cfg.step = 1;
+	cfg.def = 0;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_MTK_ENCODE_ENABLE_DUMMY_NAL;
+	cfg.type = V4L2_CTRL_TYPE_INTEGER;
+	cfg.flags = V4L2_CTRL_FLAG_WRITE_ONLY;
+	cfg.name = "Video encode enable dummynal";
+	cfg.min = 0;
+	cfg.max = 1;
+	cfg.step = 1;
+	cfg.def = 0;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_MTK_LOG;
+	cfg.type = V4L2_CTRL_TYPE_STRING;
+	cfg.flags = V4L2_CTRL_FLAG_WRITE_ONLY;
+	cfg.name = "Video Log";
+	cfg.min = 0;
+	cfg.max = 255;
+	cfg.step = 1;
+	cfg.def = 0;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_MTK_VCP_PROP;
+	cfg.type = V4L2_CTRL_TYPE_STRING;
+	cfg.flags = V4L2_CTRL_FLAG_WRITE_ONLY;
+	cfg.name = "Video VCP Property";
+	cfg.min = 0;
+	cfg.max = 255;
+	cfg.step = 1;
+	cfg.def = 0;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_MTK_GET_LOG;
+	cfg.type = V4L2_CTRL_TYPE_STRING;
+	cfg.flags = V4L2_CTRL_FLAG_READ_ONLY | V4L2_CTRL_FLAG_VOLATILE;
+	cfg.name = "Get Video Log";
+	cfg.min = 0;
+	cfg.max = LOG_PROPERTY_SIZE;
+	cfg.step = 1;
+	cfg.def = 0;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.id = V4L2_CID_MPEG_MTK_GET_VCP_PROP;
+	cfg.type = V4L2_CTRL_TYPE_STRING;
+	cfg.flags = V4L2_CTRL_FLAG_READ_ONLY | V4L2_CTRL_FLAG_VOLATILE;
+	cfg.name = "Get Video VCP Property";
+	cfg.min = 0;
+	cfg.max = LOG_PROPERTY_SIZE;
+	cfg.step = 1;
+	cfg.def = 0;
+	cfg.ops = ops;
+	mtk_vcodec_enc_custom_ctrls_check(handler, &cfg, NULL);
+
 	if (handler->error) {
 		mtk_v4l2_err("Init control handler fail %d",
 				handler->error);
@@ -1303,12 +2432,66 @@ int mtk_venc_unlock(struct mtk_vcodec_ctx *ctx)
 	return 0;
 }
 
-int mtk_venc_lock(struct mtk_vcodec_ctx *ctx)
+int mtk_venc_lock(struct mtk_vcodec_ctx *ctx, u32 hw_id)
 {
 	struct mtk_vcodec_dev *dev = ctx->dev;
 
-	mutex_lock(&dev->enc_mutex);
-	return 0;
+	if (hw_id >= MTK_VENC_HW_NUM)
+		return ret;
+
+	if (sec != 0)
+		lock = VENC_LOCK_SEC;
+	else
+		lock = VENC_LOCK_NORMAL;
+
+	mtk_v4l2_debug(4, "ctx %p [%d] hw_id %d sem_cnt %d, sec: %d, lock: %d",
+		ctx, ctx->id, hw_id, ctx->dev->enc_sem[hw_id].count, sec,
+		ctx->dev->enc_hw_locked[hw_id]);
+
+
+
+
+	if (lock != ctx->dev->enc_hw_locked[hw_id])
+		ret = down_trylock(&ctx->dev->enc_sem[hw_id]);
+	else
+		ret = 0;
+
+	if (ret == 0) {
+		ctx->dev->enc_hw_locked[hw_id] = lock;
+		ctx->core_locked[hw_id] = 1;
+	}
+
+	return ret;
+
+}
+
+void mtk_vcodec_enc_empty_queues(struct file *file, struct mtk_vcodec_ctx *ctx)
+{
+	struct vb2_buffer *dst_buf = NULL;
+	struct vb2_v4l2_buffer *src_vb2_v4l2, *dst_vb2_v4l2;
+	struct v4l2_fh *fh = file->private_data;
+
+	// error handle for release before stream-off
+	//  stream off both queue mannually.
+	v4l2_m2m_streamoff(file, fh->m2m_ctx,
+		V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE);
+	v4l2_m2m_streamoff(file, fh->m2m_ctx,
+		V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE);
+
+	while ((src_vb2_v4l2 = v4l2_m2m_src_buf_remove(ctx->m2m_ctx))) {
+		if (src_vb2_v4l2 != &ctx->enc_flush_buf->vb &&
+			src_vb2_v4l2->vb2_buf.state == VB2_BUF_STATE_ACTIVE)
+			v4l2_m2m_buf_done(src_vb2_v4l2, VB2_BUF_STATE_ERROR);
+	}
+
+	while ((dst_vb2_v4l2 = v4l2_m2m_dst_buf_remove(ctx->m2m_ctx))) {
+		dst_buf = &dst_vb2_v4l2->vb2_buf;
+		dst_buf->planes[0].bytesused = 0;
+		if (dst_vb2_v4l2->vb2_buf.state == VB2_BUF_STATE_ACTIVE)
+			v4l2_m2m_buf_done(dst_vb2_v4l2, VB2_BUF_STATE_ERROR);
+	}
+
+	ctx->state = MTK_STATE_FREE;
 }
 
 void mtk_vcodec_enc_release(struct mtk_vcodec_ctx *ctx)

@@ -98,3 +98,36 @@ obj-$(CONFIG_CHARGER_BD70528)	+= bd70528-charger.o
 obj-$(CONFIG_CHARGER_BD99954)	+= bd99954-charger.o
 obj-$(CONFIG_CHARGER_WILCO)	+= wilco-charger.o
 obj-$(CONFIG_RN5T618_POWER)	+= rn5t618_power.o
+obj-$(CONFIG_CHARGER_MT6360)	+= mt6360_pmu_chg.o
+obj-$(CONFIG_CHARGER_MT6362)	+= mt6362-chg.o
+obj-$(CONFIG_CHARGER_MT6370)	+= mt6370-charger.o
+obj-$(CONFIG_CHARGER_MT6375)	+= mt6375-charger.o
+obj-$(CONFIG_CHARGER_RT9458)	+= rt9458.o
+obj-$(CONFIG_CHARGER_RT9759)	+= rt9759.o
+obj-$(CONFIG_GAUGE_MT6375)	+= mt6375-battery.o
+mt6375-battery-objs := mtk_battery_coulomb_service.o mtk_battery.o mtk_battery_algo.o mt6375-gauge.o mtk_battery_daemon.o
+obj-$(CONFIG_CHARGER_TYPE_MT6357) += mt6357-charger-type.o
+obj-$(CONFIG_MTK_CHARGER_TYPE_DETECT)	+= mtk_chg_type_det.o
+ifneq ($(filter m y, $(CONFIG_TCPC_CLASS)),)
+obj-$(CONFIG_MTK_CHARGER) += mtk_charger_framework.o mtk_pd_charging.o charger_class.o adapter_class.o mtk_charger_algorithm_class.o mtk_pd_adapter.o
+else
+obj-$(CONFIG_MTK_CHARGER) += mtk_charger_framework.o mtk_pd_charging.o charger_class.o adapter_class.o mtk_charger_algorithm_class.o
+endif
+mtk_charger_framework-objs := mtk_charger.o mtk_charger_intf.o mtk_basic_charger.o mtk_pulse_charger.o
+mtk_pd_charging-objs := mtk_pd.o mtk_pd_hal.o
+obj-$(CONFIG_MTK_PUMP_EXPRESS_PLUS_20_SUPPORT) += mtk_pep20.o
+mtk_pep20-objs := mtk_pe2.o mtk_pe2_hal.o
+obj-$(CONFIG_MTK_PUMP_EXPRESS_PLUS_SUPPORT) += mtk_pep.o
+mtk_pep-objs := mtk_pe.o mtk_pe_hal.o
+obj-$(CONFIG_MTK_PUMP_EXPRESS_40_SUPPORT) += mtk_pep40.o
+mtk_pep40-objs := mtk_pe4.o mtk_pe4_hal.o
+obj-$(CONFIG_MTK_PUMP_EXPRESS_45_SUPPORT) += mtk_pep45.o
+mtk_pep45-objs := mtk_pe4_5.o mtk_pe4_5_hal.o
+obj-$(CONFIG_MTK_PUMP_EXPRESS_50_SUPPORT) += mtk_pep50.o
+mtk_pep50-objs := mtk_pe5.o mtk_pe5_hal.o
+
+obj-$(CONFIG_CHARGER_PENANGF_DEVICE) += penangf_charger/
+
+ifneq ($(wildcard $(srctree)/$(src)/k6983v1_64_alpha),)
+obj-$(CONFIG_GAUGE_MT6983_ALPHA_SUPPORT) += k6983v1_64_alpha/
+endif

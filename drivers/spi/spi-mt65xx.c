@@ -18,6 +18,9 @@
 #include <linux/pm_runtime.h>
 #include <linux/spi/spi.h>
 #include <linux/dma-mapping.h>
+#include <linux/pm_qos.h>
+#include <linux/time.h>
+#include <linux/timekeeping.h>
 
 #define SPI_CFG0_REG                      0x0000
 #define SPI_CFG1_REG                      0x0004
@@ -82,6 +85,9 @@
 #define DMA_ADDR_EXT_BITS (36)
 #define DMA_ADDR_DEF_BITS (32)
 
+/*reference to core layer timeout (ns) */
+#define MTK_SPI_TRANSFER_TIMEOUT (200000000)
+
 struct mtk_spi_compatible {
 	bool need_pad_sel;
 	/* Must explicitly send dummy Tx bytes to do Rx only transfer */
@@ -104,6 +110,9 @@ struct mtk_spi {
 	struct scatterlist *tx_sgl, *rx_sgl;
 	u32 tx_sgl_len, rx_sgl_len;
 	const struct mtk_spi_compatible *dev_comp;
+	struct pm_qos_request spi_qos_request;
+	u32 spi_clk_hz;
+	u32 is_fifo_polling;
 };
 
 static const struct mtk_spi_compatible mtk_common_compat;
@@ -423,8 +432,8 @@ static int mtk_spi_fifo_transfer(struct spi_master *master,
 				 struct spi_device *spi,
 				 struct spi_transfer *xfer)
 {
-	int cnt, remainder;
-	u32 reg_val;
+	u32 reg_val, cnt, remainder, len, irq_status;
+	u64 cur_time;
 	struct mtk_spi *mdata = spi_master_get_devdata(master);
 
 	mdata->cur_transfer = xfer;
@@ -444,9 +453,80 @@ static int mtk_spi_fifo_transfer(struct spi_master *master,
 		}
 	}
 
-	mtk_spi_enable_transfer(master);
+	if (!mdata->is_fifo_polling) {
+	/* make sure all reg setting done before transfer */
+		mb();
+		spi_debug("spi setting Done.Dump reg before Transfer start:\n");
+		spi_dump_reg(mdata, master);
+		mtk_spi_enable_transfer(master);
+		return 1;
+	}
+	//disable irq
+	reg_val = readl(mdata->base + SPI_CMD_REG);
+	reg_val &= ~(SPI_CMD_FINISH_IE | SPI_CMD_PAUSE_IE);
+	writel(reg_val, mdata->base + SPI_CMD_REG);
+	/* make sure all reg setting done before transfer */
+	mb();
 
-	return 1;
+	spi_debug("spi setting Done.Dump reg before Transfer start(polling):\n");
+	spi_dump_reg(mdata, master);
+
+	mtk_spi_enable_transfer(master);
+	cur_time = ktime_get_ns();
+	while (1) {
+		do {
+			irq_status = readl(mdata->base+SPI_STATUS1_REG);
+			/*Reference to core layer timeout (ns) */
+			if (ktime_get_ns() - cur_time > MTK_SPI_TRANSFER_TIMEOUT)
+				return -ETIMEDOUT;
+
+			cpu_relax();
+		} while (!irq_status);
+		reg_val = readl(mdata->base + SPI_STATUS0_REG);
+		if (reg_val & MTK_SPI_PAUSE_INT_STATUS)
+			mdata->state = MTK_SPI_PAUSED;
+		else
+			mdata->state = MTK_SPI_IDLE;
+		if (xfer->rx_buf) {
+			cnt = mdata->xfer_len / 4;
+			ioread32_rep(mdata->base + SPI_RX_DATA_REG,
+					xfer->rx_buf + mdata->num_xfered, cnt);
+			remainder = mdata->xfer_len % 4;
+			if (remainder > 0) {
+				reg_val = readl(mdata->base + SPI_RX_DATA_REG);
+				memcpy(xfer->rx_buf +
+					mdata->num_xfered +
+					(cnt * 4),
+					&reg_val,
+					remainder);
+			}
+		}
+		mdata->num_xfered += mdata->xfer_len;
+		if (mdata->num_xfered == xfer->len)
+			break;
+		len = xfer->len - mdata->num_xfered;
+		mdata->xfer_len = min(MTK_SPI_MAX_FIFO_SIZE, len);
+		mtk_spi_setup_packet(master);
+		if (xfer->tx_buf) {
+			cnt = mdata->xfer_len / 4;
+			iowrite32_rep(mdata->base + SPI_TX_DATA_REG,
+					xfer->tx_buf + mdata->num_xfered, cnt);
+			remainder = mdata->xfer_len % 4;
+			if (remainder > 0) {
+				reg_val = 0;
+				memcpy(&reg_val,
+				xfer->tx_buf + (cnt * 4) + mdata->num_xfered,
+				remainder);
+				writel(reg_val, mdata->base + SPI_TX_DATA_REG);
+			}
+		}
+		/* make sure all reg setting done before transfer */
+		mb();
+		spi_debug("spi setting Done.Dump reg before Transfer start:(polling)\n");
+		spi_dump_reg(mdata, master);
+		mtk_spi_enable_transfer(master);
+	}
+	return 0;
 }
 
 static int mtk_spi_dma_transfer(struct spi_master *master,
@@ -489,6 +569,18 @@ static int mtk_spi_dma_transfer(struct spi_master *master,
 	mtk_spi_update_mdata_len(master);
 	mtk_spi_setup_packet(master);
 	mtk_spi_setup_dma_addr(master, xfer);
+
+	if (mdata->is_fifo_polling) {
+		//enable irq
+		cmd |= SPI_CMD_FINISH_IE | SPI_CMD_PAUSE_IE;
+		writel(cmd, mdata->base + SPI_CMD_REG);
+	}
+
+	/* make sure all reg setting done before transfer */
+	mb();
+	spi_debug("spi setting Done.Dump reg before Transfer start:\n");
+	spi_dump_reg(mdata, master);
+
 	mtk_spi_enable_transfer(master);
 
 	return 1;
@@ -693,6 +785,7 @@ static int mtk_spi_probe(struct platform_device *pdev)
 				goto err_put_master;
 			}
 		}
+		master->num_chipselect = mdata->pad_num;
 	}
 
 	platform_set_drvdata(pdev, master);
@@ -770,14 +863,14 @@ static int mtk_spi_probe(struct platform_device *pdev)
 			ret = -EINVAL;
 			goto err_disable_runtime_pm;
 		}
-
+/*
 		if (!master->cs_gpios && master->num_chipselect > 1) {
 			dev_err(&pdev->dev,
 				"cs_gpios not specified and num_chipselect > 1\n");
 			ret = -EINVAL;
 			goto err_disable_runtime_pm;
 		}
-
+*/
 		if (master->cs_gpios) {
 			for (i = 0; i < master->num_chipselect; i++) {
 				ret = devm_gpio_request(&pdev->dev,
@@ -799,7 +892,28 @@ static int mtk_spi_probe(struct platform_device *pdev)
 	ret = dma_set_mask(&pdev->dev, DMA_BIT_MASK(addr_bits));
 	if (ret)
 		dev_notice(&pdev->dev, "SPI dma_set_mask(%d) failed, ret:%d\n",
-			   addr_bits, ret);
+			addr_bits, ret);
+	ret = of_property_read_u32_index(
+				pdev->dev.of_node, "mediatek,fifo-polling",
+				0, &mdata->is_fifo_polling);
+	if (ret < 0)
+		mdata->is_fifo_polling = 0;
+
+	if (mdata->dev_comp->no_need_unprepare) {
+		ret = clk_prepare(mdata->spi_clk);
+		if (ret < 0) {
+			dev_err(&pdev->dev, "failed to prepare spi_clk (%d)\n", ret);
+			goto err_put_master;
+		}
+	}
+
+	ret = devm_spi_register_master(&pdev->dev, master);
+	if (ret) {
+		dev_err(&pdev->dev, "failed to register master (%d)\n", ret);
+		if (mdata->dev_comp->no_need_unprepare)
+			clk_unprepare(mdata->spi_clk);
+		goto err_put_master;
+	}
 
 	return 0;
 

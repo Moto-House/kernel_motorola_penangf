@@ -543,7 +543,20 @@ static void u2_phy_instance_power_on(struct mtk_tphy *tphy,
 		tmp |= P2C_RG_SUSPENDM | P2C_FORCE_SUSPENDM;
 		writel(tmp, com + U3P_U2PHYDTM0);
 	}
-	dev_dbg(tphy->dev, "%s(%d)\n", __func__, index);
+#if IS_ENABLED(CONFIG_USB_MTK_HDRC)
+	if (instance->usb_special_phy_settings) {
+		/* Used by phone products */
+		/* HQA Setting */
+		tmp = readl(com + U3P_USBPHYACR6);
+		tmp &= ~PA6_RG_U2_DISCTH;
+		if (instance->discth)
+			tmp |= PA6_RG_U2_DISCTH_VAL(instance->discth);
+		else
+			tmp |= PA6_RG_U2_DISCTH_VAL(0x9);
+		writel(tmp, com + U3P_USBPHYACR6);
+	}
+#endif
+	dev_info(tphy->dev, "%s(%d)\n", __func__, index);
 }
 
 static void u2_phy_instance_power_off(struct mtk_tphy *tphy,

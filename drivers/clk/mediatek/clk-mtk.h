@@ -248,4 +248,17 @@ void mtk_register_reset_controller(struct device_node *np,
 void mtk_register_reset_controller_set_clr(struct device_node *np,
 	unsigned int num_regs, int regofs);
 
+extern bool (*mtk_fh_set_rate)(const char *name, unsigned long dds, int postdiv);
+
+struct mtk_clk_desc {
+	const struct mtk_gate *clks;
+	size_t num_clks;
+};
+
+int mtk_clk_simple_probe(struct platform_device *pdev);
+extern int register_mtk_clk_notifier(struct notifier_block *nb);
+extern int unregister_mtk_clk_notifier(struct notifier_block *nb);
+extern int mtk_clk_notify(struct regmap *regmap, struct regmap *hwv_regmap,
+		const char *name, u32 ofs, u32 id, u32 shift, int event_type);
+
 #endif /* __DRV_CLK_MTK_H */

@@ -1002,10 +1002,8 @@ static int mt6370_transmit(struct tcpc_device *tcpc, enum tcpm_transmit_type typ
 	struct mt6370_tcpc_data *ddata = tcpc_get_dev_data(tcpc);
 	u8 temp[MT6370_TRANSMIT_MAX_SIZE];
 	int ret, data_cnt, packet_cnt;
-	long long t1 = 0, t2 = 0;
 
 	MT6370_INFO("%s ++\n", __func__);
-	t1 = local_clock();
 	if (type < TCPC_TX_HARD_RESET) {
 		data_cnt = sizeof(u32) * PD_HEADER_CNT(header);
 		packet_cnt = data_cnt + sizeof(u16);
@@ -1023,8 +1021,6 @@ static int mt6370_transmit(struct tcpc_device *tcpc, enum tcpm_transmit_type typ
 
 	ret = mt6370_write8(ddata, TCPC_V10_REG_TRANSMIT,
 			    TCPC_V10_REG_TRANSMIT_SET(tcpc->pd_retry_count, type));
-
-	t2 = local_clock();
 
 #if PD_DYNAMIC_SENDER_RESPONSE
 	tcpc->t[0] = local_clock();

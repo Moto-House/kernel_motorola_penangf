@@ -581,7 +581,6 @@ static void wusb3801_irq_work_handler(struct kthread_work *work)
 		container_of(work, struct wusb3801_chip, irq_work);
 
 	int rc;
-	int ret = 0;
 	int int_sts;
 	uint8_t status, type;
 	struct tcpc_device *tcpc;
@@ -632,7 +631,7 @@ static void wusb3801_irq_work_handler(struct kthread_work *work)
 		typec_cc_orientation = 0x0;
 #endif /* __TEST_CC_PATCH__ */
 		tcpc->typec_attach_new = TYPEC_UNATTACHED;
-		ret = tcpci_report_usb_port_changed(tcpc);
+		tcpci_report_usb_port_changed(tcpc);
 		//tcpc->typec_role = TYPEC_ROLE_UNKNOWN;
 		tcpci_notify_typec_state(tcpc);
 		if (tcpc->typec_attach_old == TYPEC_ATTACHED_SRC) {
@@ -682,7 +681,7 @@ static void wusb3801_irq_work_handler(struct kthread_work *work)
 				pr_err("%s: ----ATTACHED_SRC-----\n", __func__);
 				otg_serivce_flag = 1;
 				tcpc->typec_attach_new = TYPEC_ATTACHED_SRC;
-				ret = tcpci_report_usb_port_changed(tcpc);
+				tcpci_report_usb_port_changed(tcpc);
 				tcpci_source_vbus(tcpc, TCP_VBUS_CTRL_TYPEC,
 						  TCPC_VBUS_SOURCE_5V, 0);
 				tcpci_notify_typec_state(tcpc);
@@ -699,7 +698,7 @@ static void wusb3801_irq_work_handler(struct kthread_work *work)
 				pr_err("%s: ----ATTACHED_SNK-------\n",
 				       __func__);
 				tcpc->typec_attach_new = TYPEC_ATTACHED_SNK;
-				ret = tcpci_report_usb_port_changed(tcpc);
+				tcpci_report_usb_port_changed(tcpc);
 				tcpci_notify_typec_state(tcpc);
 				tcpc->typec_attach_old = TYPEC_ATTACHED_SNK;
 			}

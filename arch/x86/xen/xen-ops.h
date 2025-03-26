@@ -138,6 +138,8 @@ __visible unsigned long xen_read_cr2_direct(void);
 
 /* These are not functions, and cannot be called normally */
 __visible void xen_iret(void);
+__visible void xen_sysret32(void);
+__visible void xen_sysret64(void);
 
 extern int xen_panic_handler_init(void);
 
@@ -160,14 +162,5 @@ void xen_hvm_post_suspend(int suspend_cancelled);
 #else
 static inline void xen_hvm_post_suspend(int suspend_cancelled) {}
 #endif
-
-#ifdef CONFIG_XEN_PV
-void xen_hypercall_pv(void);
-#endif
-void xen_hypercall_hvm(void);
-void xen_hypercall_amd(void);
-void xen_hypercall_intel(void);
-void xen_hypercall_setfunc(void);
-void *__xen_hypercall_setfunc(void);
 
 #endif /* XEN_OPS_H */

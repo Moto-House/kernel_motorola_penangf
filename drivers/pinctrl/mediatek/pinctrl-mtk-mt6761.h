@@ -1,17 +1,16 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /*
- * Copyright (C) 2018 MediaTek Inc.
- *
- * Author: ZH Chen <zh.chen@mediatek.com>
+ * Copyright (C) 2019 MediaTek Inc.
+ * Author: Andy Teng <andy.teng@mediatek.com>
  *
  */
 
-#ifndef __PINCTRL_MTK_MT6765_H
-#define __PINCTRL_MTK_MT6765_H
+#ifndef __PINCTRL_MTK_MT6761_H
+#define __PINCTRL_MTK_MT6761_H
 
 #include "pinctrl-paris.h"
 
-static struct mtk_pin_desc mtk_pins_mt6765[] = {
+static struct mtk_pin_desc mtk_pins_mt6761[] = {
 	MTK_PIN(
 		0, "GPIO0",
 		MTK_EINT_FUNCTION(0, 0),
@@ -1768,4 +1767,4 @@ static struct mtk_pin_desc mtk_pins_mt6765[] = {
 	),
 };
 
-#endif/* __PINCTRL_MTK_MT6765_H */
+#endif/* __PINCTRL_MTK_MT6761_H */

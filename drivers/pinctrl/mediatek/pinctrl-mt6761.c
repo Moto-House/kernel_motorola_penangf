@@ -2,15 +2,15 @@
 /*
  * Copyright (C) 2019 MediaTek Inc.
  *
- * Author: Light Hsieh <light.hsieh@mediatek.com>
+ * Author: Andy Teng <andy.teng@mediatek.com>
  *
  */
 
 #include <linux/module.h>
-#include "pinctrl-mtk-mt6765.h"
+#include "pinctrl-mtk-mt6761.h"
 #include "pinctrl-paris.h"
 
-/* MT6765 have multiple bases to program pin configuration listed as the below:
+/* mt6761 have multiple bases to program pin configuration listed as the below:
  * gpio:0x10005000,     iocfg_lt:0x10002000, iocfg_lm:0x10002200,
  * iocfg_lb:0x10002400, iocfg_bl:0x10002600, iocfg_rr:0x10002800,
  * iocfg_rb:0x10002A00, iocfg_rt:0x10002C00
@@ -25,7 +25,7 @@
 	PIN_FIELD_CALC(s_pin, e_pin, i_base, s_addr, x_addrs, s_bit, x_bits,  \
 		       32, 1)
 
-static const struct mtk_pin_field_calc mt6765_pin_mode_range[] = {
+static const struct mtk_pin_field_calc mt6761_pin_mode_range[] = {
 	PIN_FIELD_BASE(0, 7, 0, 0x0300, 0x10, 0, 4),
 	PIN_FIELD_BASE(8, 15, 0, 0x0310, 0x10, 0, 4),
 	PIN_FIELD_BASE(16, 23, 0, 0x0320, 0x10, 0, 4),
@@ -51,7 +51,7 @@ static const struct mtk_pin_field_calc mt6765_pin_mode_range[] = {
 	PIN_FIELD_BASE(176, 178, 0, 0x0460, 0x10, 0, 4),
 };
 
-static const struct mtk_pin_field_calc mt6765_pin_dir_range[] = {
+static const struct mtk_pin_field_calc mt6761_pin_dir_range[] = {
 	PIN_FIELD_BASE(0, 31, 0, 0x0000, 0x10, 0, 1),
 	PIN_FIELD_BASE(32, 63, 0, 0x0010, 0x10, 0, 1),
 	PIN_FIELD_BASE(64, 95, 0, 0x0020, 0x10, 0, 1),
@@ -60,7 +60,7 @@ static const struct mtk_pin_field_calc mt6765_pin_dir_range[] = {
 	PIN_FIELD_BASE(160, 178, 0, 0x0050, 0x10, 0, 1),
 };
 
-static const struct mtk_pin_field_calc mt6765_pin_di_range[] = {
+static const struct mtk_pin_field_calc mt6761_pin_di_range[] = {
 	PIN_FIELD_BASE(0, 31, 0, 0x0200, 0x10, 0, 1),
 	PIN_FIELD_BASE(32, 63, 0, 0x0210, 0x10, 0, 1),
 	PIN_FIELD_BASE(64, 95, 0, 0x0220, 0x10, 0, 1),
@@ -69,7 +69,7 @@ static const struct mtk_pin_field_calc mt6765_pin_di_range[] = {
 	PIN_FIELD_BASE(160, 178, 0, 0x0250, 0x10, 0, 1),
 };
 
-static const struct mtk_pin_field_calc mt6765_pin_do_range[] = {
+static const struct mtk_pin_field_calc mt6761_pin_do_range[] = {
 	PIN_FIELD_BASE(0, 31, 0, 0x0100, 0x10, 0, 1),
 	PIN_FIELD_BASE(32, 63, 0, 0x0110, 0x10, 0, 1),
 	PIN_FIELD_BASE(64, 95, 0, 0x0120, 0x10, 0, 1),
@@ -78,7 +78,7 @@ static const struct mtk_pin_field_calc mt6765_pin_do_range[] = {
 	PIN_FIELD_BASE(160, 178, 0, 0x0150, 0x10, 0, 1),
 };
 
-static const struct mtk_pin_field_calc mt6765_pin_ies_range[] = {
+static const struct mtk_pin_field_calc mt6761_pin_ies_range[] = {
 	PIN_FIELD_BASE(0, 0, 5, 0x0030, 0x10, 6, 1),
 	PIN_FIELD_BASE(1, 1, 5, 0x0030, 0x10, 7, 1),
 	PIN_FIELD_BASE(2, 2, 5, 0x0030, 0x10, 10, 1),
@@ -260,7 +260,7 @@ static const struct mtk_pin_field_calc mt6765_pin_ies_range[] = {
 	PIN_FIELD_BASE(178, 178, 4, 0x0040, 0x10, 16, 1),
 };
 
-static const struct mtk_pin_field_calc mt6765_pin_smt_range[] = {
+static const struct mtk_pin_field_calc mt6761_pin_smt_range[] = {
 	PIN_FIELD_BASE(0, 0, 5, 0x00b0, 0x10, 4, 1),
 	PIN_FIELD_BASE(1, 1, 5, 0x00b0, 0x10, 4, 1),
 	PIN_FIELD_BASE(2, 2, 5, 0x00b0, 0x10, 4, 1),
@@ -442,7 +442,7 @@ static const struct mtk_pin_field_calc mt6765_pin_smt_range[] = {
 	PIN_FIELD_BASE(178, 178, 4, 0x00c0, 0x10, 5, 1),
 };
 
-static const struct mtk_pin_field_calc mt6765_pin_pu_range[] = {
+static const struct mtk_pin_field_calc mt6761_pin_pu_range[] = {
 	PIN_FIELD_BASE(0, 0, 5, 0x0060, 0x10, 6, 1),
 	PIN_FIELD_BASE(1, 1, 5, 0x0060, 0x10, 7, 1),
 	PIN_FIELD_BASE(2, 2, 5, 0x0060, 0x10, 10, 1),
@@ -596,7 +596,7 @@ static const struct mtk_pin_field_calc mt6765_pin_pu_range[] = {
 	PIN_FIELD_BASE(178, 178, 4, 0x0080, 0x10, 16, 1),
 };
 
-static const struct mtk_pin_field_calc mt6765_pin_pd_range[] = {
+static const struct mtk_pin_field_calc mt6761_pin_pd_range[] = {
 	PIN_FIELD_BASE(0, 0, 5, 0x0040, 0x10, 6, 1),
 	PIN_FIELD_BASE(1, 1, 5, 0x0040, 0x10, 7, 1),
 	PIN_FIELD_BASE(2, 2, 5, 0x0040, 0x10, 10, 1),
@@ -750,7 +750,7 @@ static const struct mtk_pin_field_calc mt6765_pin_pd_range[] = {
 	PIN_FIELD_BASE(178, 178, 4, 0x0060, 0x10, 16, 1),
 };
 
-static const struct mtk_pin_field_calc mt6765_pin_pupd_range[] = {
+static const struct mtk_pin_field_calc mt6761_pin_pupd_range[] = {
 	PIN_FIELD_BASE(29, 29, 3, 0x0050, 0x10, 0, 1),
 	PIN_FIELD_BASE(30, 30, 3, 0x0050, 0x10, 1, 1),
 	PIN_FIELD_BASE(31, 31, 3, 0x0050, 0x10, 5, 1),
@@ -781,7 +781,7 @@ static const struct mtk_pin_field_calc mt6765_pin_pupd_range[] = {
 	PIN_FIELD_BASE(133, 133, 1, 0x0030, 0x10, 11, 1),
 };
 
-static const struct mtk_pin_field_calc mt6765_pin_r0_range[] = {
+static const struct mtk_pin_field_calc mt6761_pin_r0_range[] = {
 	PIN_FIELD_BASE(29, 29, 3, 0x0070, 0x10, 0, 1),
 	PIN_FIELD_BASE(30, 30, 3, 0x0070, 0x10, 1, 1),
 	PIN_FIELD_BASE(31, 31, 3, 0x0070, 0x10, 5, 1),
@@ -812,7 +812,7 @@ static const struct mtk_pin_field_calc mt6765_pin_r0_range[] = {
 	PIN_FIELD_BASE(133, 133, 1, 0x0050, 0x10, 11, 1),
 };
 
-static const struct mtk_pin_field_calc mt6765_pin_r1_range[] = {
+static const struct mtk_pin_field_calc mt6761_pin_r1_range[] = {
 	PIN_FIELD_BASE(29, 29, 3, 0x0080, 0x10, 0, 1),
 	PIN_FIELD_BASE(30, 30, 3, 0x0080, 0x10, 1, 1),
 	PIN_FIELD_BASE(31, 31, 3, 0x0080, 0x10, 5, 1),
@@ -843,7 +843,7 @@ static const struct mtk_pin_field_calc mt6765_pin_r1_range[] = {
 	PIN_FIELD_BASE(133, 133, 1, 0x0060, 0x10, 11, 1),
 };
 
-static const struct mtk_pin_field_calc mt6765_pin_drv_range[] = {
+static const struct mtk_pin_field_calc mt6761_pin_drv_range[] = {
 	PIN_FIELD_BASE(0, 0, 5, 0x0000, 0x10, 12, 3),
 	PIN_FIELD_BASE(1, 1, 5, 0x0000, 0x10, 12, 3),
 	PIN_FIELD_BASE(2, 2, 5, 0x0000, 0x10, 12, 3),
@@ -1025,63 +1025,62 @@ static const struct mtk_pin_field_calc mt6765_pin_drv_range[] = {
 	PIN_FIELD_BASE(178, 178, 4, 0x0000, 0x10, 15, 3),
 };
 
-static const struct mtk_pin_reg_calc mt6765_reg_cals[PINCTRL_PIN_REG_MAX] = {
-	[PINCTRL_PIN_REG_MODE] = MTK_RANGE(mt6765_pin_mode_range),
-	[PINCTRL_PIN_REG_DIR] = MTK_RANGE(mt6765_pin_dir_range),
-	[PINCTRL_PIN_REG_DI] = MTK_RANGE(mt6765_pin_di_range),
-	[PINCTRL_PIN_REG_DO] = MTK_RANGE(mt6765_pin_do_range),
-	[PINCTRL_PIN_REG_SR] = MTK_RANGE(mt6765_pin_dir_range),
-	[PINCTRL_PIN_REG_SMT] = MTK_RANGE(mt6765_pin_smt_range),
-	[PINCTRL_PIN_REG_IES] = MTK_RANGE(mt6765_pin_ies_range),
-	[PINCTRL_PIN_REG_PU] = MTK_RANGE(mt6765_pin_pu_range),
-	[PINCTRL_PIN_REG_PD] = MTK_RANGE(mt6765_pin_pd_range),
-	[PINCTRL_PIN_REG_DRV] = MTK_RANGE(mt6765_pin_drv_range),
-	[PINCTRL_PIN_REG_PUPD] = MTK_RANGE(mt6765_pin_pupd_range),
-	[PINCTRL_PIN_REG_R0] = MTK_RANGE(mt6765_pin_r0_range),
-	[PINCTRL_PIN_REG_R1] = MTK_RANGE(mt6765_pin_r1_range),
+static const struct mtk_pin_reg_calc mt6761_reg_cals[PINCTRL_PIN_REG_MAX] = {
+	[PINCTRL_PIN_REG_MODE] = MTK_RANGE(mt6761_pin_mode_range),
+	[PINCTRL_PIN_REG_DIR] = MTK_RANGE(mt6761_pin_dir_range),
+	[PINCTRL_PIN_REG_DI] = MTK_RANGE(mt6761_pin_di_range),
+	[PINCTRL_PIN_REG_DO] = MTK_RANGE(mt6761_pin_do_range),
+	[PINCTRL_PIN_REG_SR] = MTK_RANGE(mt6761_pin_dir_range),
+	[PINCTRL_PIN_REG_SMT] = MTK_RANGE(mt6761_pin_smt_range),
+	[PINCTRL_PIN_REG_IES] = MTK_RANGE(mt6761_pin_ies_range),
+	[PINCTRL_PIN_REG_PU] = MTK_RANGE(mt6761_pin_pu_range),
+	[PINCTRL_PIN_REG_PD] = MTK_RANGE(mt6761_pin_pd_range),
+	[PINCTRL_PIN_REG_DRV] = MTK_RANGE(mt6761_pin_drv_range),
+	[PINCTRL_PIN_REG_PUPD] = MTK_RANGE(mt6761_pin_pupd_range),
+	[PINCTRL_PIN_REG_R0] = MTK_RANGE(mt6761_pin_r0_range),
+	[PINCTRL_PIN_REG_R1] = MTK_RANGE(mt6761_pin_r1_range),
 };
 
-static const struct mtk_pin_soc mt6765_data = {
-	.reg_cal = mt6765_reg_cals,
-	.pins = mtk_pins_mt6765,
-	.npins = ARRAY_SIZE(mtk_pins_mt6765),
-	.ngrps = ARRAY_SIZE(mtk_pins_mt6765),
+
+static const struct mtk_pin_soc mt6761_data = {
+	.reg_cal = mt6761_reg_cals,
+	.pins = mtk_pins_mt6761,
+	.npins = ARRAY_SIZE(mtk_pins_mt6761),
+	.ngrps = ARRAY_SIZE(mtk_pins_mt6761),
 	.nfuncs = 8,
 	.gpio_m = 0,
 	.capability_flags = FLAG_RACE_FREE_ACCESS
 				| FLAG_DRIVE_SET_RAW,
 	.bias_set_combo = mtk_pinconf_bias_set_combo,
 	.bias_get_combo = mtk_pinconf_bias_get_combo,
-/*
- *	.adv_drive_get = mtk_pinconf_adv_drive_get,
- *	.adv_drive_set = mtk_pinconf_adv_drive_set,
- */
+	.adv_drive_set = mtk_pinconf_adv_drive_set,
+	.adv_drive_get = mtk_pinconf_adv_drive_get,
 };
 
-static const struct of_device_id mt6765_pinctrl_of_match[] = {
-	{ .compatible = "mediatek,mt6765-pinctrl", },
+static const struct of_device_id mt6761_pinctrl_of_match[] = {
+	{ .compatible = "mediatek,mt6761-pinctrl", },
 	{ }
 };
 
-static int mt6765_pinctrl_probe(struct platform_device *pdev)
+static int mt6761_pinctrl_probe(struct platform_device *pdev)
 {
-	return mtk_paris_pinctrl_probe(pdev, &mt6765_data);
+	return mtk_paris_pinctrl_probe(pdev, &mt6761_data);
 }
 
-static struct platform_driver mt6765_pinctrl_driver = {
+static struct platform_driver mt6761_pinctrl_driver = {
 	.driver = {
-		.name = "mt6765-pinctrl",
-		.of_match_table = mt6765_pinctrl_of_match,
+		.name = "mt6761-pinctrl",
+		.of_match_table = mt6761_pinctrl_of_match,
 		.pm = &mtk_paris_pinctrl_pm_ops,
 	},
-	.probe = mt6765_pinctrl_probe,
+	.probe = mt6761_pinctrl_probe,
 };
 
-static int __init mt6765_pinctrl_init(void)
+static int __init mt6761_pinctrl_init(void)
 {
-	return platform_driver_register(&mt6765_pinctrl_driver);
+	return platform_driver_register(&mt6761_pinctrl_driver);
 }
-arch_initcall(mt6765_pinctrl_init);
+arch_initcall(mt6761_pinctrl_init);
 
 MODULE_LICENSE("GPL v2");
-MODULE_DESCRIPTION("MediaTek MT6765 Pinctrl Driver");
+MODULE_DESCRIPTION("MediaTek MT6761 Pinctrl Driver");

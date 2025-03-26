@@ -417,7 +417,7 @@ static calibration_status_t s5k4h7yx03_check_manufacturing_data(void){
 }
 
 /*Penang Code for EKPENAN4GU-2504 by chenxiaoyong at 20240311 start*/
-static void  s5k4h7yx03_otp_get_module_info()
+static void  s5k4h7yx03_otp_get_module_info(void)
 {
 	if( (s5k4h7_otp_data_info.module[14] ==  'T') && (s5k4h7_otp_data_info.module[15]==  'S')){//tsp
 		sprintf(module_info_front, "%s", "s5k4h7yx03_tsp_mipi_raw");

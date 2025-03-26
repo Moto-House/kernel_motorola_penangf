@@ -1065,6 +1065,9 @@ retry:
 			goto free_card;
 
 		mmc_decode_cid(card);
+		pr_warn("%s: this card was produced by manf %d, oem %d, in %d/%d \n",
+			mmc_hostname(host), card->cid.manfid,
+			card->cid.oemid, card->cid.month, card->cid.year);
 	}
 
 	/*
@@ -1341,8 +1344,10 @@ int mmc_attach_sd(struct mmc_host *host)
 	WARN_ON(!host->claimed);
 
 	err = mmc_send_app_op_cond(host, 0, &ocr);
-	if (err)
+	if (err){
+		pr_err("%s: cmd error \n", mmc_hostname(host));
 		return err;
+	}
 
 	mmc_attach_bus(host, &mmc_sd_ops);
 	if (host->ocr_avail_sd)
@@ -1371,6 +1376,7 @@ int mmc_attach_sd(struct mmc_host *host)
 	 * Can we support the voltage(s) of the card(s)?
 	 */
 	if (!rocr) {
+		pr_err("%s:No support for card's volts, please check voltage！\n", mmc_hostname(host));
 		err = -EINVAL;
 		goto err;
 	}
@@ -1379,8 +1385,10 @@ int mmc_attach_sd(struct mmc_host *host)
 	 * Detect and init the card.
 	 */
 	err = mmc_sd_init_card(host, rocr, NULL);
-	if (err)
+	if (err){
+		pr_err("%s: init sdcard error, please check it \n", mmc_hostname(host));
 		goto err;
+	}
 
 	mmc_release_host(host);
 	err = mmc_add_card(host->card);

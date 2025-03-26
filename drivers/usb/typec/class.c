@@ -321,13 +321,11 @@ static void typec_altmode_put_partner(struct altmode *altmode)
 {
 	struct altmode *partner = altmode->partner;
 	struct typec_altmode *adev;
-	struct typec_altmode *partner_adev;
 
 	if (!partner)
 		return;
 
-	adev = &altmode->adev;
-	partner_adev = &partner->adev;
+	adev = &partner->adev;
 
 	if (is_typec_plug(adev->dev.parent)) {
 		struct typec_plug *plug = to_typec_plug(adev->dev.parent);
@@ -336,7 +334,7 @@ static void typec_altmode_put_partner(struct altmode *altmode)
 	} else {
 		partner->partner = NULL;
 	}
-	put_device(&partner_adev->dev);
+	put_device(&adev->dev);
 }
 
 /**
@@ -557,11 +555,9 @@ static void typec_altmode_release(struct device *dev)
 {
 	struct altmode *alt = to_altmode(to_typec_altmode(dev));
 
-	if (!is_typec_port(dev->parent))
-		typec_altmode_put_partner(alt);
+	typec_altmode_put_partner(alt);
 
 	altmode_id_remove(alt->adev.dev.parent, alt->id);
-	put_device(alt->adev.dev.parent);
 	kfree(alt);
 }
 
@@ -610,8 +606,6 @@ typec_register_altmode(struct device *parent,
 	alt->adev.dev.groups = alt->groups;
 	alt->adev.dev.type = &typec_altmode_dev_type;
 	dev_set_name(&alt->adev.dev, "%s.%u", dev_name(parent), id);
-
-	get_device(alt->adev.dev.parent);
 
 	/* Link partners and plugs with the ports */
 	if (!is_port)

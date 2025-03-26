@@ -1382,12 +1382,14 @@ again:
 					goto out;
 				}
 
-				if (!path->skip_locking)
+				if (!path->skip_locking) {
 					btrfs_tree_read_lock(eb);
+					btrfs_set_lock_blocking_read(eb);
+				}
 				ret = find_extent_in_eb(eb, bytenr,
 							*extent_item_pos, &eie, ignore_offset);
 				if (!path->skip_locking)
-					btrfs_tree_read_unlock(eb);
+					btrfs_tree_read_unlock_blocking(eb);
 				free_extent_buffer(eb);
 				if (ret < 0)
 					goto out;
@@ -1730,7 +1732,7 @@ char *btrfs_ref_to_path(struct btrfs_root *fs_root, struct btrfs_path *path,
 					   name_off, name_len);
 		if (eb != eb_in) {
 			if (!path->skip_locking)
-				btrfs_tree_read_unlock(eb);
+				btrfs_tree_read_unlock_blocking(eb);
 			free_extent_buffer(eb);
 		}
 		ret = btrfs_find_item(fs_root, path, parent, 0,
@@ -1750,6 +1752,8 @@ char *btrfs_ref_to_path(struct btrfs_root *fs_root, struct btrfs_path *path,
 		eb = path->nodes[0];
 		/* make sure we can use eb after releasing the path */
 		if (eb != eb_in) {
+			if (!path->skip_locking)
+				btrfs_set_lock_blocking_read(eb);
 			path->nodes[0] = NULL;
 			path->locks[0] = 0;
 		}
@@ -2311,14 +2315,20 @@ struct btrfs_data_container *init_data_container(u32 total_bytes)
 	size_t alloc_bytes;
 
 	alloc_bytes = max_t(size_t, total_bytes, sizeof(*data));
-	data = kvzalloc(alloc_bytes, GFP_KERNEL);
+	data = kvmalloc(alloc_bytes, GFP_KERNEL);
 	if (!data)
 		return ERR_PTR(-ENOMEM);
 
-	if (total_bytes >= sizeof(*data))
+	if (total_bytes >= sizeof(*data)) {
 		data->bytes_left = total_bytes - sizeof(*data);
-	else
+		data->bytes_missing = 0;
+	} else {
 		data->bytes_missing = sizeof(*data) - total_bytes;
+		data->bytes_left = 0;
+	}
+
+	data->elem_cnt = 0;
+	data->elem_missed = 0;
 
 	return data;
 }

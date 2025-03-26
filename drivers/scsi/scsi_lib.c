@@ -2013,15 +2013,8 @@ scsi_mode_select(struct scsi_device *sdev, int pf, int sp, int modepage,
 	memset(cmd, 0, sizeof(cmd));
 	cmd[1] = (pf ? 0x10 : 0) | (sp ? 0x01 : 0);
 
-	/*
-	 * Use MODE SELECT(10) if the device asked for it or if the mode page
-	 * and the mode select header cannot fit within the maximumm 255 bytes
-	 * of the MODE SELECT(6) command.
-	 */
-	if (sdev->use_10_for_ms ||
-	    len + 4 > 255 ||
-	    data->block_descriptor_length > 255) {
-		if (len > 65535 - 8)
+	if (sdev->use_10_for_ms) {
+		if (len > 65535)
 			return -EINVAL;
 		real_buffer = kmalloc(8 + len, GFP_KERNEL);
 		if (!real_buffer)
@@ -2034,13 +2027,15 @@ scsi_mode_select(struct scsi_device *sdev, int pf, int sp, int modepage,
 		real_buffer[3] = data->device_specific;
 		real_buffer[4] = data->longlba ? 0x01 : 0;
 		real_buffer[5] = 0;
-		put_unaligned_be16(data->block_descriptor_length,
-				   &real_buffer[6]);
+		real_buffer[6] = data->block_descriptor_length >> 8;
+		real_buffer[7] = data->block_descriptor_length;
 
 		cmd[0] = MODE_SELECT_10;
-		put_unaligned_be16(len, &cmd[7]);
+		cmd[7] = len >> 8;
+		cmd[8] = len;
 	} else {
-		if (data->longlba)
+		if (len > 255 || data->block_descriptor_length > 255 ||
+		    data->longlba)
 			return -EINVAL;
 
 		real_buffer = kmalloc(4 + len, GFP_KERNEL);
@@ -2381,6 +2376,9 @@ static void scsi_evt_emit(struct scsi_device *sdev, struct scsi_event *evt)
 		break;
 	case SDEV_EVT_POWER_ON_RESET_OCCURRED:
 		envp[idx++] = "SDEV_UA=POWER_ON_RESET_OCCURRED";
+		#if IS_ENABLED(CONFIG_MTK_FIX_SCSI_THREAD_RACING_UPDATE)
+		wait_event(sdev->host->host_wait, sdev->sdev_gendev.kobj.parent != NULL);
+		#endif
 		break;
 	default:
 		/* do nothing */

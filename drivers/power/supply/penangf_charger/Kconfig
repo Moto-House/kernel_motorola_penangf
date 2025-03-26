@@ -1,0 +1,69 @@
+config CHARGER_SGM415XX
+	tristate "Switch charger SGM415XX driver"
+  depends on I2C
+	default n
+	help
+	  This config is for switch charger sgm415xx
+	  Say Y to enable switch charger sgm4154x
+	  Say N to disable
+
+config CHARGER_SC8989X
+	tristate "Switch charger SC8989X driver"
+  depends on I2C
+	default n
+	help
+	  This config is for switch charger sc8989x
+	  Say Y to enable switch charger sc8989x
+	  Say N to disable
+
+config CHARGER_SY697X
+	tristate "Switch charger sy697x device driver"
+	depends on I2C
+	default n
+	help
+	  This config is for switch charger sy697X
+	  Say Y to enable switch charger sy697x
+	  Say N to disable
+
+config CHARGER_SC854X
+  tristate "charger pump SC854X device driver"
+  depends on I2C
+  default n
+  help
+    This config is for charger pump sc854x device driver
+    Say Y to enable charger pump sc854x
+    Say N to disable
+
+config CHARGER_PUMP_HL7139
+	tristate "charger pump hl7139 device driver"
+  depends on I2C
+	default n
+	help
+	  This config is for charger pump hl7139
+	  Say Y to enable charger pump hl7139
+	  Say N to disable
+
+config CHARGER_WT6670F
+    tristate "qc3+ wt6670f or z350 device driver"
+    depends on I2C
+    default n
+    help
+      This config is for qc3+ wt6670f or z350 device driver
+      Say Y to enable wt6670f or z350
+      Say N to disable
+
+config CHARGER_QC_POLICY
+    tristate "QC3+ Charger Policy"
+    help
+      Say yes here to enable qc3+ charger policy.
+      This driver contains charging control flow and
+      maintains charging status.
+      Say no if not using Qc3+ charger policy manager
+
+config CHARGER_TURBO_QC3P
+    tristate "Turbo QC3+ Charger Policy"
+    help
+      Say yes here to enable Turbo qc3+ charger policy.
+      This driver contains charging control flow and
+      maintains charging status.
+      Say no if not using Turbo Qc3+ charger policy manager

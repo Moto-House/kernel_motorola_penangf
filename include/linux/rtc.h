@@ -169,6 +169,9 @@ struct rtc_device *devm_rtc_allocate_device(struct device *dev);
 int __rtc_register_device(struct module *owner, struct rtc_device *rtc);
 
 extern int rtc_read_time(struct rtc_device *rtc, struct rtc_time *tm);
+/*Penang Code for EKPENAN4GU-2504 by chenxiaoyong at 20240311 start*/
+extern int get_current_rtc_time(struct rtc_time *tm, unsigned long *now_tm_sec);
+/*Penang Code for EKPENAN4GU-2504 by chenxiaoyong at 20240311 end*/
 extern int rtc_set_time(struct rtc_device *rtc, struct rtc_time *tm);
 extern int rtc_set_ntp_time(struct timespec64 now, unsigned long *target_nsec);
 int __rtc_read_alarm(struct rtc_device *rtc, struct rtc_wkalrm *alarm);

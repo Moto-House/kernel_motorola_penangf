@@ -305,4 +305,7 @@ void read_persistent_wall_and_boot_offset(struct timespec64 *wall_clock,
 					  struct timespec64 *boot_offset);
 extern int update_persistent_clock64(struct timespec64 now);
 
+/*Penang Code for EKPENAN4GU-2504 by chenxiaoyong at 20240311 start*/
+extern void getnstimeofday_nolock(struct timespec64 *tv);
+/*Penang Code for EKPENAN4GU-2504 by chenxiaoyong at 20240311 end*/
 #endif

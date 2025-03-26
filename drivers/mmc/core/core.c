@@ -1498,6 +1498,17 @@ void _mmc_detect_change(struct mmc_host *host, unsigned long delay, bool cd_irq)
  */
 void mmc_detect_change(struct mmc_host *host, unsigned long delay)
 {
+	/*
+	 * To reduce the probability of sdcard recognition, the power-on time was
+	 * changed from 200ms to 1000ms by referring to historical projects.
+	 */
+	if (mmc_gpio_get_cd(host) > 0) {
+		pr_warn("%s: mmc1 card slot inserted,cd =%d\n", __func__,mmc_gpio_get_cd(host));
+		mmc_delay(800);
+	} else {
+		pr_warn("%s: mmc1 card slot removed,cd =%d\n", __func__,mmc_gpio_get_cd(host));
+	}
+
 	_mmc_detect_change(host, delay, true);
 }
 EXPORT_SYMBOL(mmc_detect_change);

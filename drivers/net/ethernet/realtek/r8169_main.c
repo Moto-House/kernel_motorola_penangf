@@ -205,7 +205,6 @@ enum rtl_registers {
 					/* No threshold before first PCI xfer */
 #define	RX_FIFO_THRESH			(7 << RXCFG_FIFO_SHIFT)
 #define	RX_EARLY_OFF			(1 << 11)
-#define	RX_PAUSE_SLOT_ON		(1 << 11)	/* 8125b and later */
 #define	RXCFG_DMA_SHIFT			8
 					/* Unlimited maximum PCI burst. */
 #define	RX_DMA_BURST			(7 << RXCFG_DMA_SHIFT)
@@ -569,34 +568,7 @@ struct rtl8169_counters {
 	__le64	rx_broadcast;
 	__le32	rx_multicast;
 	__le16	tx_aborted;
-	__le16	tx_underrun;
-	/* new since RTL8125 */
-	__le64 tx_octets;
-	__le64 rx_octets;
-	__le64 rx_multicast64;
-	__le64 tx_unicast64;
-	__le64 tx_broadcast64;
-	__le64 tx_multicast64;
-	__le32 tx_pause_on;
-	__le32 tx_pause_off;
-	__le32 tx_pause_all;
-	__le32 tx_deferred;
-	__le32 tx_late_collision;
-	__le32 tx_all_collision;
-	__le32 tx_aborted32;
-	__le32 align_errors32;
-	__le32 rx_frame_too_long;
-	__le32 rx_runt;
-	__le32 rx_pause_on;
-	__le32 rx_pause_off;
-	__le32 rx_pause_all;
-	__le32 rx_unknown_opcode;
-	__le32 rx_mac_error;
-	__le32 tx_underrun32;
-	__le32 rx_mac_missed;
-	__le32 rx_tcam_dropped;
-	__le32 tdu;
-	__le32 rdu;
+	__le16	tx_underun;
 };
 
 struct rtl8169_tc_offsets {
@@ -610,8 +582,6 @@ struct rtl8169_tc_offsets {
 enum rtl_flag {
 	RTL_FLAG_TASK_ENABLED = 0,
 	RTL_FLAG_TASK_RESET_PENDING,
-	RTL_FLAG_TASK_RESET_NO_QUEUE_WAKE,
-	RTL_FLAG_TASK_TX_TIMEOUT,
 	RTL_FLAG_MAX
 };
 
@@ -1697,7 +1667,7 @@ static void rtl8169_get_ethtool_stats(struct net_device *dev,
 	data[9] = le64_to_cpu(counters->rx_broadcast);
 	data[10] = le32_to_cpu(counters->rx_multicast);
 	data[11] = le16_to_cpu(counters->tx_aborted);
-	data[12] = le16_to_cpu(counters->tx_underrun);
+	data[12] = le16_to_cpu(counters->tx_underun);
 }
 
 static void rtl8169_get_strings(struct net_device *dev, u32 stringset, u8 *data)
@@ -2346,12 +2316,8 @@ static void rtl_init_rxcfg(struct rtl8169_private *tp)
 	case RTL_GIGA_MAC_VER_40 ... RTL_GIGA_MAC_VER_52:
 		RTL_W32(tp, RxConfig, RX128_INT_EN | RX_MULTI_EN | RX_DMA_BURST | RX_EARLY_OFF);
 		break;
-	case RTL_GIGA_MAC_VER_61:
+	case RTL_GIGA_MAC_VER_60 ... RTL_GIGA_MAC_VER_63:
 		RTL_W32(tp, RxConfig, RX_FETCH_DFLT_8125 | RX_DMA_BURST);
-		break;
-	case RTL_GIGA_MAC_VER_63:
-		RTL_W32(tp, RxConfig, RX_FETCH_DFLT_8125 | RX_DMA_BURST |
-			RX_PAUSE_SLOT_ON);
 		break;
 	default:
 		RTL_W32(tp, RxConfig, RX128_INT_EN | RX_DMA_BURST);
@@ -2611,8 +2577,6 @@ static void rtl_set_rx_mode(struct net_device *dev)
 
 	if (dev->flags & IFF_PROMISC) {
 		rx_mode |= AcceptAllPhys;
-	} else if (!(dev->flags & IFF_MULTICAST)) {
-		rx_mode &= ~AcceptMulticast;
 	} else if (netdev_mc_count(dev) > MC_FILTER_LIMIT ||
 		   dev->flags & IFF_ALLMULTI ||
 		   tp->mac_version == RTL_GIGA_MAC_VER_35) {
@@ -4070,7 +4034,7 @@ static void rtl8169_tx_timeout(struct net_device *dev, unsigned int txqueue)
 {
 	struct rtl8169_private *tp = netdev_priv(dev);
 
-	rtl_schedule_task(tp, RTL_FLAG_TASK_TX_TIMEOUT);
+	rtl_schedule_task(tp, RTL_FLAG_TASK_RESET_PENDING);
 }
 
 static int rtl8169_tx_map(struct rtl8169_private *tp, const u32 *opts, u32 len,
@@ -4155,8 +4119,8 @@ static unsigned int rtl8125_quirk_udp_padto(struct rtl8169_private *tp,
 {
 	unsigned int padto = 0, len = skb->len;
 
-	if (len < 128 + RTL_MIN_PATCH_LEN && rtl_skb_is_udp(skb) &&
-	    skb_transport_header_was_set(skb)) {
+	if (rtl_is_8125(tp) && len < 128 + RTL_MIN_PATCH_LEN &&
+	    rtl_skb_is_udp(skb) && skb_transport_header_was_set(skb)) {
 		unsigned int trans_data_len = skb_tail_pointer(skb) -
 					      skb_transport_header(skb);
 
@@ -4180,15 +4144,9 @@ static unsigned int rtl8125_quirk_udp_padto(struct rtl8169_private *tp,
 static unsigned int rtl_quirk_packet_padto(struct rtl8169_private *tp,
 					   struct sk_buff *skb)
 {
-	unsigned int padto = 0;
+	unsigned int padto;
 
-	switch (tp->mac_version) {
-	case RTL_GIGA_MAC_VER_61 ... RTL_GIGA_MAC_VER_63:
-		padto = rtl8125_quirk_udp_padto(tp, skb);
-		break;
-	default:
-		break;
-	}
+	padto = rtl8125_quirk_udp_padto(tp, skb);
 
 	switch (tp->mac_version) {
 	case RTL_GIGA_MAC_VER_34:
@@ -4280,12 +4238,13 @@ static bool rtl8169_tso_csum_v2(struct rtl8169_private *tp,
 	return true;
 }
 
-static bool rtl_tx_slots_avail(struct rtl8169_private *tp)
+static bool rtl_tx_slots_avail(struct rtl8169_private *tp,
+			       unsigned int nr_frags)
 {
 	unsigned int slots_avail = tp->dirty_tx + NUM_TX_DESC - tp->cur_tx;
 
 	/* A skbuff with nr_frags needs nr_frags+1 entries in the tx queue */
-	return slots_avail > MAX_SKB_FRAGS;
+	return slots_avail > nr_frags;
 }
 
 /* Versions RTL8102e and from RTL8168c onwards support csum_v2 */
@@ -4311,19 +4270,23 @@ static void rtl8169_doorbell(struct rtl8169_private *tp)
 static netdev_tx_t rtl8169_start_xmit(struct sk_buff *skb,
 				      struct net_device *dev)
 {
+	unsigned int frags = skb_shinfo(skb)->nr_frags;
 	struct rtl8169_private *tp = netdev_priv(dev);
 	unsigned int entry = tp->cur_tx % NUM_TX_DESC;
 	struct TxDesc *txd_first, *txd_last;
 	bool stop_queue, door_bell;
-	unsigned int frags;
 	u32 opts[2];
 
-	if (unlikely(!rtl_tx_slots_avail(tp))) {
+	txd_first = tp->TxDescArray + entry;
+
+	if (unlikely(!rtl_tx_slots_avail(tp, frags))) {
 		if (net_ratelimit())
 			netdev_err(dev, "BUG! Tx Ring full when queue awake!\n");
-		netif_stop_queue(dev);
-		return NETDEV_TX_BUSY;
+		goto err_stop_0;
 	}
+
+	if (unlikely(le32_to_cpu(txd_first->opts1) & DescOwn))
+		goto err_stop_0;
 
 	opts[1] = rtl8169_tx_vlan_tag(skb);
 	opts[0] = 0;
@@ -4337,9 +4300,6 @@ static netdev_tx_t rtl8169_start_xmit(struct sk_buff *skb,
 				    entry, false)))
 		goto err_dma_0;
 
-	txd_first = tp->TxDescArray + entry;
-
-	frags = skb_shinfo(skb)->nr_frags;
 	if (frags) {
 		if (rtl8169_xmit_frags(tp, skb, opts, entry))
 			goto err_dma_1;
@@ -4362,15 +4322,22 @@ static netdev_tx_t rtl8169_start_xmit(struct sk_buff *skb,
 	/* rtl_tx needs to see descriptor changes before updated tp->cur_tx */
 	smp_wmb();
 
-	WRITE_ONCE(tp->cur_tx, tp->cur_tx + frags + 1);
+	tp->cur_tx += frags + 1;
 
-	stop_queue = !rtl_tx_slots_avail(tp);
+	stop_queue = !rtl_tx_slots_avail(tp, MAX_SKB_FRAGS);
 	if (unlikely(stop_queue)) {
 		/* Avoid wrongly optimistic queue wake-up: rtl_tx thread must
 		 * not miss a ring update when it notices a stopped queue.
 		 */
 		smp_wmb();
 		netif_stop_queue(dev);
+		door_bell = true;
+	}
+
+	if (door_bell)
+		rtl8169_doorbell(tp);
+
+	if (unlikely(stop_queue)) {
 		/* Sync with rtl_tx:
 		 * - publish queue status and cur_tx ring index (write barrier)
 		 * - refresh dirty_tx ring index (read barrier).
@@ -4378,14 +4345,10 @@ static netdev_tx_t rtl8169_start_xmit(struct sk_buff *skb,
 		 * status and forget to wake up queue, a racing rtl_tx thread
 		 * can't.
 		 */
-		smp_mb__after_atomic();
-		if (rtl_tx_slots_avail(tp))
+		smp_mb();
+		if (rtl_tx_slots_avail(tp, MAX_SKB_FRAGS))
 			netif_start_queue(dev);
-		door_bell = true;
 	}
-
-	if (door_bell)
-		rtl8169_doorbell(tp);
 
 	return NETDEV_TX_OK;
 
@@ -4395,6 +4358,11 @@ err_dma_0:
 	dev_kfree_skb_any(skb);
 	dev->stats.tx_dropped++;
 	return NETDEV_TX_OK;
+
+err_stop_0:
+	netif_stop_queue(dev);
+	dev->stats.tx_dropped++;
+	return NETDEV_TX_BUSY;
 }
 
 static unsigned int rtl_last_frag_len(struct sk_buff *skb)
@@ -4492,16 +4460,17 @@ static void rtl8169_pcierr_interrupt(struct net_device *dev)
 static void rtl_tx(struct net_device *dev, struct rtl8169_private *tp,
 		   int budget)
 {
-	unsigned int dirty_tx, bytes_compl = 0, pkts_compl = 0;
+	unsigned int dirty_tx, tx_left, bytes_compl = 0, pkts_compl = 0;
 
 	dirty_tx = tp->dirty_tx;
+	smp_rmb();
 
-	while (READ_ONCE(tp->cur_tx) != dirty_tx) {
+	for (tx_left = tp->cur_tx - dirty_tx; tx_left > 0; tx_left--) {
 		unsigned int entry = dirty_tx % NUM_TX_DESC;
 		struct sk_buff *skb = tp->tx_skb[entry].skb;
 		u32 status;
 
-		status = le32_to_cpu(READ_ONCE(tp->TxDescArray[entry].opts1));
+		status = le32_to_cpu(tp->TxDescArray[entry].opts1);
 		if (status & DescOwn)
 			break;
 
@@ -4520,6 +4489,7 @@ static void rtl_tx(struct net_device *dev, struct rtl8169_private *tp,
 
 		rtl_inc_priv_stats(&tp->tx_stats, pkts_compl, bytes_compl);
 
+		tp->dirty_tx = dirty_tx;
 		/* Sync with rtl8169_start_xmit:
 		 * - publish dirty_tx ring index (write barrier)
 		 * - refresh cur_tx ring index and queue status (read barrier)
@@ -4527,9 +4497,11 @@ static void rtl_tx(struct net_device *dev, struct rtl8169_private *tp,
 		 * a racing xmit thread can only have a right view of the
 		 * ring status.
 		 */
-		smp_store_mb(tp->dirty_tx, dirty_tx);
-		if (netif_queue_stopped(dev) && rtl_tx_slots_avail(tp))
+		smp_mb();
+		if (netif_queue_stopped(dev) &&
+		    rtl_tx_slots_avail(tp, MAX_SKB_FRAGS)) {
 			netif_wake_queue(dev);
+		}
 		/*
 		 * 8168 hack: TxPoll requests are lost when the Tx packets are
 		 * too close. Let's kick an extra TxPoll request when a burst
@@ -4572,7 +4544,7 @@ static int rtl_rx(struct net_device *dev, struct rtl8169_private *tp, u32 budget
 		dma_addr_t addr;
 		u32 status;
 
-		status = le32_to_cpu(READ_ONCE(desc->opts1));
+		status = le32_to_cpu(desc->opts1);
 		if (status & DescOwn)
 			break;
 
@@ -4656,9 +4628,7 @@ static irqreturn_t rtl8169_interrupt(int irq, void *dev_instance)
 	if ((status & 0xffff) == 0xffff || !(status & tp->irq_mask))
 		return IRQ_NONE;
 
-	/* At least RTL8168fp may unexpectedly set the SYSErr bit */
-	if (unlikely(status & SYSErr &&
-	    tp->mac_version <= RTL_GIGA_MAC_VER_06)) {
+	if (unlikely(status & SYSErr)) {
 		rtl8169_pcierr_interrupt(tp->dev);
 		goto out;
 	}
@@ -4684,7 +4654,6 @@ static void rtl_task(struct work_struct *work)
 {
 	struct rtl8169_private *tp =
 		container_of(work, struct rtl8169_private, wk.work);
-	int ret;
 
 	rtnl_lock();
 
@@ -4692,21 +4661,9 @@ static void rtl_task(struct work_struct *work)
 	    !test_bit(RTL_FLAG_TASK_ENABLED, tp->wk.flags))
 		goto out_unlock;
 
-	if (test_and_clear_bit(RTL_FLAG_TASK_TX_TIMEOUT, tp->wk.flags)) {
-		/* ASPM compatibility issues are a typical reason for tx timeouts */
-		ret = pci_disable_link_state(tp->pci_dev, PCIE_LINK_STATE_L1 |
-							  PCIE_LINK_STATE_L0S);
-		if (!ret)
-			netdev_warn_once(tp->dev, "ASPM disabled on Tx timeout\n");
-		goto reset;
-	}
-
 	if (test_and_clear_bit(RTL_FLAG_TASK_RESET_PENDING, tp->wk.flags)) {
-reset:
 		rtl_reset_work(tp);
 		netif_wake_queue(tp->dev);
-	} else if (test_and_clear_bit(RTL_FLAG_TASK_RESET_NO_QUEUE_WAKE, tp->wk.flags)) {
-		rtl_reset_work(tp);
 	}
 out_unlock:
 	rtnl_unlock();
@@ -4731,17 +4688,12 @@ static int rtl8169_poll(struct napi_struct *napi, int budget)
 static void r8169_phylink_handler(struct net_device *ndev)
 {
 	struct rtl8169_private *tp = netdev_priv(ndev);
-	struct device *d = tp_to_dev(tp);
 
 	if (netif_carrier_ok(ndev)) {
 		rtl_link_chg_patch(tp);
-		pm_request_resume(d);
-		netif_wake_queue(tp->dev);
+		pm_request_resume(&tp->pci_dev->dev);
 	} else {
-		/* In few cases rx is broken after link-down otherwise */
-		if (rtl_is_8125(tp))
-			rtl_schedule_task(tp, RTL_FLAG_TASK_RESET_NO_QUEUE_WAKE);
-		pm_runtime_idle(d);
+		pm_runtime_idle(&tp->pci_dev->dev);
 	}
 
 	if (net_ratelimit())
@@ -4810,7 +4762,7 @@ static int rtl8169_close(struct net_device *dev)
 	rtl8169_down(tp);
 	rtl8169_rx_clear(tp);
 
-	cancel_work(&tp->wk.work);
+	cancel_work_sync(&tp->wk.work);
 
 	free_irq(pci_irq_vector(pdev, 0), tp);
 
@@ -5076,8 +5028,6 @@ static void rtl_remove_one(struct pci_dev *pdev)
 	if (pci_dev_run_wake(pdev))
 		pm_runtime_get_noresume(&pdev->dev);
 
-	cancel_work_sync(&tp->wk.work);
-
 	unregister_netdev(tp->dev);
 
 	if (r8168_check_dash(tp))
@@ -5201,15 +5151,6 @@ static int r8169_mdio_register(struct rtl8169_private *tp)
 	struct pci_dev *pdev = tp->pci_dev;
 	struct mii_bus *new_bus;
 	int ret;
-
-	/* On some boards with this chip version the BIOS is buggy and misses
-	 * to reset the PHY page selector. This results in the PHY ID read
-	 * accessing registers on a different page, returning a more or
-	 * less random value. Fix this by resetting the page selector first.
-	 */
-	if (tp->mac_version == RTL_GIGA_MAC_VER_25 ||
-	    tp->mac_version == RTL_GIGA_MAC_VER_26)
-		r8169_mdio_write(tp, 0x1f, 0);
 
 	new_bus = devm_mdiobus_alloc(&pdev->dev);
 	if (!new_bus)

@@ -214,7 +214,7 @@ static int usbqc_pm_enable_sw(struct usbqc_pm *qcpm, bool en)
 	return 0;
 }
 
-static usbqc_pm_enable_term_sw(struct usbqc_pm *qcpm, bool en)
+static int usbqc_pm_enable_term_sw(struct usbqc_pm *qcpm, bool en)
 {
 	int ret = 0;
 

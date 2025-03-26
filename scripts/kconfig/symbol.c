@@ -13,21 +13,18 @@
 
 struct symbol symbol_yes = {
 	.name = "y",
-	.type = S_TRISTATE,
 	.curr = { "y", yes },
 	.flags = SYMBOL_CONST|SYMBOL_VALID,
 };
 
 struct symbol symbol_mod = {
 	.name = "m",
-	.type = S_TRISTATE,
 	.curr = { "m", mod },
 	.flags = SYMBOL_CONST|SYMBOL_VALID,
 };
 
 struct symbol symbol_no = {
 	.name = "n",
-	.type = S_TRISTATE,
 	.curr = { "n", no },
 	.flags = SYMBOL_CONST|SYMBOL_VALID,
 };
@@ -126,9 +123,9 @@ static long long sym_get_range_val(struct symbol *sym, int base)
 static void sym_validate_range(struct symbol *sym)
 {
 	struct property *prop;
-	struct symbol *range_sym;
 	int base;
 	long long val, val2;
+	char str[64];
 
 	switch (sym->type) {
 	case S_INT:
@@ -144,15 +141,17 @@ static void sym_validate_range(struct symbol *sym)
 	if (!prop)
 		return;
 	val = strtoll(sym->curr.val, NULL, base);
-	range_sym = prop->expr->left.sym;
-	val2 = sym_get_range_val(range_sym, base);
+	val2 = sym_get_range_val(prop->expr->left.sym, base);
 	if (val >= val2) {
-		range_sym = prop->expr->right.sym;
-		val2 = sym_get_range_val(range_sym, base);
+		val2 = sym_get_range_val(prop->expr->right.sym, base);
 		if (val <= val2)
 			return;
 	}
-	sym->curr.val = range_sym->curr.val;
+	if (sym->type == S_INT)
+		sprintf(str, "%lld", val2);
+	else
+		sprintf(str, "0x%llx", val2);
+	sym->curr.val = xstrdup(str);
 }
 
 static void sym_set_changed(struct symbol *sym)
@@ -779,7 +778,8 @@ const char *sym_get_string_value(struct symbol *sym)
 		case no:
 			return "n";
 		case mod:
-			return "m";
+			sym_calc_value(modules_sym);
+			return (modules_sym->curr.tri == no) ? "n" : "m";
 		case yes:
 			return "y";
 		}

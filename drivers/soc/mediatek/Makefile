@@ -2,7 +2,7 @@
 obj-$(CONFIG_MTK_CMDQ) += mtk-cmdq-helper.o
 obj-$(CONFIG_MTK_INFRACFG) += mtk-infracfg.o
 obj-$(CONFIG_MTK_PMIC_WRAP) += mtk-pmic-wrap.o
-obj-$(CONFIG_MTK_SCPSYS) += mtk-scpsys.o mtk-pm-domain-disable-unused.o
+obj-$(CONFIG_MTK_SCPSYS) += mtk-scpsys.o
 
 ifneq ($(wildcard $(srctree)/$(src)/mtk-scpsys-mt6739.c),)
 obj-$(CONFIG_MTK_SCPSYS) += mtk-scpsys-mt6739.o mtk-scpsys-bringup.o

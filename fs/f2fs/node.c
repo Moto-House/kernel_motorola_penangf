@@ -1302,7 +1302,6 @@ struct page *f2fs_new_node_page(struct dnode_of_data *dn, unsigned int ofs)
 	}
 	if (unlikely(new_ni.blk_addr != NULL_ADDR)) {
 		err = -EFSCORRUPTED;
-		dec_valid_node_count(sbi, dn->inode, !ofs);
 		set_sbi_flag(sbi, SBI_NEED_FSCK);
 		goto fail;
 	}
@@ -1328,6 +1327,7 @@ struct page *f2fs_new_node_page(struct dnode_of_data *dn, unsigned int ofs)
 	if (ofs == 0)
 		inc_valid_inode_count(sbi);
 	return page;
+
 fail:
 	clear_node_page_dirty(page);
 	f2fs_put_page(page, 1);
@@ -1456,6 +1456,9 @@ page_hit:
 			  ofs_of_node(page), cpver_of_node(page),
 			  next_blkaddr_of_node(page));
 		set_sbi_flag(sbi, SBI_NEED_FSCK);
+#if IS_ENABLED(CONFIG_MTK_F2FS_DEBUG)
+		BUG_ON(1);
+#endif
 		err = -EINVAL;
 out_err:
 		ClearPageUptodate(page);

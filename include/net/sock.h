@@ -853,8 +853,6 @@ static inline void sk_add_bind_node(struct sock *sk,
 	hlist_for_each_entry_safe(__sk, tmp, list, sk_node)
 #define sk_for_each_bound(__sk, list) \
 	hlist_for_each_entry(__sk, list, sk_bind_node)
-#define sk_for_each_bound_safe(__sk, tmp, list) \
-	hlist_for_each_entry_safe(__sk, tmp, list, sk_bind_node)
 
 /**
  * sk_for_each_entry_offset_rcu - iterate over a list at a given struct offset
@@ -1540,7 +1538,7 @@ static inline bool sk_wmem_schedule(struct sock *sk, int size)
 }
 
 static inline bool
-__sk_rmem_schedule(struct sock *sk, int size, bool pfmemalloc)
+sk_rmem_schedule(struct sock *sk, struct sk_buff *skb, int size)
 {
 	int delta;
 
@@ -1548,13 +1546,7 @@ __sk_rmem_schedule(struct sock *sk, int size, bool pfmemalloc)
 		return true;
 	delta = size - sk->sk_forward_alloc;
 	return delta <= 0 || __sk_mem_schedule(sk, delta, SK_MEM_RECV) ||
-	       pfmemalloc;
-}
-
-static inline bool
-sk_rmem_schedule(struct sock *sk, struct sk_buff *skb, int size)
-{
-	return __sk_rmem_schedule(sk, size, skb_pfmemalloc(skb));
+		skb_pfmemalloc(skb);
 }
 
 static inline void sk_mem_reclaim(struct sock *sk)
@@ -1701,13 +1693,6 @@ static inline void sock_owned_by_me(const struct sock *sk)
 {
 #ifdef CONFIG_LOCKDEP
 	WARN_ON_ONCE(!lockdep_sock_is_held(sk) && debug_locks);
-#endif
-}
-
-static inline void sock_not_owned_by_me(const struct sock *sk)
-{
-#ifdef CONFIG_LOCKDEP
-	WARN_ON_ONCE(lockdep_sock_is_held(sk) && debug_locks);
 #endif
 }
 
@@ -1883,33 +1868,21 @@ static inline void sk_tx_queue_set(struct sock *sk, int tx_queue)
 	/* sk_tx_queue_mapping accept only upto a 16-bit value */
 	if (WARN_ON_ONCE((unsigned short)tx_queue >= USHRT_MAX))
 		return;
-	/* Paired with READ_ONCE() in sk_tx_queue_get() and
-	 * other WRITE_ONCE() because socket lock might be not held.
-	 */
-	WRITE_ONCE(sk->sk_tx_queue_mapping, tx_queue);
+	sk->sk_tx_queue_mapping = tx_queue;
 }
 
 #define NO_QUEUE_MAPPING	USHRT_MAX
 
 static inline void sk_tx_queue_clear(struct sock *sk)
 {
-	/* Paired with READ_ONCE() in sk_tx_queue_get() and
-	 * other WRITE_ONCE() because socket lock might be not held.
-	 */
-	WRITE_ONCE(sk->sk_tx_queue_mapping, NO_QUEUE_MAPPING);
+	sk->sk_tx_queue_mapping = NO_QUEUE_MAPPING;
 }
 
 static inline int sk_tx_queue_get(const struct sock *sk)
 {
-	if (sk) {
-		/* Paired with WRITE_ONCE() in sk_tx_queue_clear()
-		 * and sk_tx_queue_set().
-		 */
-		int val = READ_ONCE(sk->sk_tx_queue_mapping);
+	if (sk && sk->sk_tx_queue_mapping != NO_QUEUE_MAPPING)
+		return sk->sk_tx_queue_mapping;
 
-		if (val != NO_QUEUE_MAPPING)
-			return val;
-	}
 	return -1;
 }
 
@@ -2035,17 +2008,16 @@ sk_dst_get(struct sock *sk)
 
 static inline void __dst_negative_advice(struct sock *sk)
 {
-	/* *** ANDROID FIXUP ***
-	 * See b/343727534 for more details why this typedef is needed here.
-	 * *** ANDROID FIXUP ***
-	 */
-	android_dst_ops_negative_advice_new_t negative_advice;
-
-	struct dst_entry *dst = __sk_dst_get(sk);
+	struct dst_entry *ndst, *dst = __sk_dst_get(sk);
 
 	if (dst && dst->ops->negative_advice) {
-		negative_advice = (android_dst_ops_negative_advice_new_t)dst->ops->negative_advice;
-		negative_advice(sk, dst);
+		ndst = dst->ops->negative_advice(dst);
+
+		if (ndst != dst) {
+			rcu_assign_pointer(sk->sk_dst_cache, ndst);
+			sk_tx_queue_clear(sk);
+			sk->sk_dst_pending_confirm = 0;
+		}
 	}
 }
 
@@ -2061,7 +2033,7 @@ __sk_dst_set(struct sock *sk, struct dst_entry *dst)
 	struct dst_entry *old_dst;
 
 	sk_tx_queue_clear(sk);
-	WRITE_ONCE(sk->sk_dst_pending_confirm, 0);
+	sk->sk_dst_pending_confirm = 0;
 	old_dst = rcu_dereference_protected(sk->sk_dst_cache,
 					    lockdep_sock_is_held(sk));
 	rcu_assign_pointer(sk->sk_dst_cache, dst);
@@ -2074,7 +2046,7 @@ sk_dst_set(struct sock *sk, struct dst_entry *dst)
 	struct dst_entry *old_dst;
 
 	sk_tx_queue_clear(sk);
-	WRITE_ONCE(sk->sk_dst_pending_confirm, 0);
+	sk->sk_dst_pending_confirm = 0;
 	old_dst = xchg((__force struct dst_entry **)&sk->sk_dst_cache, dst);
 	dst_release(old_dst);
 }

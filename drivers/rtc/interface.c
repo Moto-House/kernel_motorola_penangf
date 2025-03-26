@@ -123,6 +123,40 @@ int rtc_read_time(struct rtc_device *rtc, struct rtc_time *tm)
 }
 EXPORT_SYMBOL_GPL(rtc_read_time);
 
+/*Penang Code for EKPENAN4GU-2504 by chenxiaoyong at 20240311 start*/
+int get_current_rtc_time(struct rtc_time *tm, unsigned long *now_tm_sec)
+{
+	struct rtc_device *rtc = NULL;
+	int rc = 0;
+
+	rtc = rtc_class_open(CONFIG_RTC_HCTOSYS_DEVICE);
+	if (rtc == NULL) {
+		pr_err("%s: unable to open rtc device (%s)\n",
+			__FILE__, CONFIG_RTC_HCTOSYS_DEVICE);
+		return -EINVAL;
+	}
+
+	rc = rtc_read_time(rtc, tm);
+	if (rc) {
+		pr_err("Error reading rtc device (%s) : %d\n",
+			CONFIG_RTC_HCTOSYS_DEVICE, rc);
+		goto close_time;
+	}
+
+	rc = rtc_valid_tm(tm);
+	if (rc) {
+		pr_err("Invalid RTC time (%s): %d\n",
+			CONFIG_RTC_HCTOSYS_DEVICE, rc);
+		goto close_time;
+	}
+	*now_tm_sec = rtc_tm_to_time64(tm);
+
+close_time:
+	rtc_class_close(rtc);
+	return rc;
+}
+/*Penang Code for EKPENAN4GU-2504 by chenxiaoyong at 20240311 end*/
+
 int rtc_set_time(struct rtc_device *rtc, struct rtc_time *tm)
 {
 	int err, uie;
@@ -274,9 +308,10 @@ int __rtc_read_alarm(struct rtc_device *rtc, struct rtc_wkalrm *alarm)
 			return err;
 
 		/* full-function RTCs won't have such missing fields */
-		err = rtc_valid_tm(&alarm->time);
-		if (!err)
-			goto done;
+		if (rtc_valid_tm(&alarm->time) == 0) {
+			rtc_add_offset(rtc, &alarm->time);
+			return 0;
+		}
 
 		/* get the "after" timestamp, to detect wrapped fields */
 		err = rtc_read_time(rtc, &now);
@@ -378,8 +413,6 @@ done:
 	if (err)
 		dev_warn(&rtc->dev, "invalid alarm value: %ptR\n",
 			 &alarm->time);
-	else
-		rtc_add_offset(rtc, &alarm->time);
 
 	return err;
 }
@@ -907,18 +940,13 @@ void rtc_timer_do_work(struct work_struct *work)
 	struct timerqueue_node *next;
 	ktime_t now;
 	struct rtc_time tm;
-	int err;
 
 	struct rtc_device *rtc =
 		container_of(work, struct rtc_device, irqwork);
 
 	mutex_lock(&rtc->ops_lock);
 again:
-	err = __rtc_read_time(rtc, &tm);
-	if (err) {
-		mutex_unlock(&rtc->ops_lock);
-		return;
-	}
+	__rtc_read_time(rtc, &tm);
 	now = rtc_tm_to_ktime(tm);
 	while ((next = timerqueue_getnext(&rtc->timerqueue))) {
 		if (next->expires > now)

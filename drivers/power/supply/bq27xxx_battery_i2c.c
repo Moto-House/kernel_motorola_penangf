@@ -162,7 +162,7 @@ static int bq27xxx_battery_i2c_probe(struct i2c_client *client,
 	di->id = num;
 	di->dev = &client->dev;
 	di->chip = id->driver_data;
-	di->name = name;
+	di->name = "battery";
 
 	di->bus.read = bq27xxx_battery_i2c_read;
 	di->bus.write = bq27xxx_battery_i2c_write;
@@ -209,9 +209,7 @@ static int bq27xxx_battery_i2c_remove(struct i2c_client *client)
 {
 	struct bq27xxx_device_info *di = i2c_get_clientdata(client);
 
-	if (client->irq)
-		free_irq(client->irq, di);
-
+	free_irq(client->irq, di);
 	bq27xxx_battery_teardown(di);
 
 	mutex_lock(&battery_mutex);

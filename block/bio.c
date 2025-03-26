@@ -21,7 +21,6 @@
 #include <linux/blk-crypto.h>
 
 #include <trace/events/block.h>
-#include <trace/hooks/block.h>
 #include "blk.h"
 #include "blk-rq-qos.h"
 
@@ -253,7 +252,6 @@ static void bio_free(struct bio *bio)
 	struct bio_set *bs = bio->bi_pool;
 	void *p;
 
-	trace_android_vh_bio_free(bio);
 	bio_uninit(bio);
 
 	if (bs) {
@@ -772,7 +770,7 @@ static bool bio_try_merge_hw_seg(struct request_queue *q, struct bio *bio,
 
 	if ((addr1 | mask) != (addr2 | mask))
 		return false;
-	if (len > queue_max_segment_size(q) - bv->bv_len)
+	if (bv->bv_len + len > queue_max_segment_size(q))
 		return false;
 	return __bio_try_merge_page(bio, page, len, offset, same_page);
 }
@@ -879,11 +877,15 @@ bool __bio_try_merge_page(struct bio *bio, struct page *page,
 	if (bio->bi_vcnt > 0) {
 		struct bio_vec *bv = &bio->bi_io_vec[bio->bi_vcnt - 1];
 
+#if IS_ENABLED(CONFIG_MTK_BLK_IO_BOOST)
+		if (page == bv->bv_page && off == bv->bv_offset + bv->bv_len) {
+#else
 		if (page_is_mergeable(bv, page, len, off, same_page)) {
 			if (bio->bi_iter.bi_size > UINT_MAX - len) {
 				*same_page = false;
 				return false;
 			}
+#endif
 			bv->bv_len += len;
 			bio->bi_iter.bi_size += len;
 			return true;
@@ -956,7 +958,7 @@ void bio_release_pages(struct bio *bio, bool mark_dirty)
 		return;
 
 	bio_for_each_segment_all(bvec, bio, iter_all) {
-		if (mark_dirty)
+		if (mark_dirty && !PageCompound(bvec->bv_page))
 			set_page_dirty_lock(bvec->bv_page);
 		put_page(bvec->bv_page);
 	}
@@ -1328,7 +1330,8 @@ void bio_set_pages_dirty(struct bio *bio)
 	struct bvec_iter_all iter_all;
 
 	bio_for_each_segment_all(bvec, bio, iter_all) {
-		set_page_dirty_lock(bvec->bv_page);
+		if (!PageCompound(bvec->bv_page))
+			set_page_dirty_lock(bvec->bv_page);
 	}
 }
 
@@ -1376,7 +1379,7 @@ void bio_check_pages_dirty(struct bio *bio)
 	struct bvec_iter_all iter_all;
 
 	bio_for_each_segment_all(bvec, bio, iter_all) {
-		if (!PageDirty(bvec->bv_page))
+		if (!PageDirty(bvec->bv_page) && !PageCompound(bvec->bv_page))
 			goto defer;
 	}
 

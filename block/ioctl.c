@@ -17,7 +17,7 @@ static int blkpg_do_ioctl(struct block_device *bdev,
 			  struct blkpg_partition __user *upart, int op)
 {
 	struct blkpg_partition p;
-	sector_t start, length;
+	long long start, length;
 
 	if (!capable(CAP_SYS_ADMIN))
 		return -EACCES;
@@ -31,12 +31,6 @@ static int blkpg_do_ioctl(struct block_device *bdev,
 
 	if (op == BLKPG_DEL_PARTITION)
 		return bdev_del_partition(bdev, p.pno);
-
-	if (p.start < 0 || p.length <= 0 || LLONG_MAX - p.length < p.start)
-		return -EINVAL;
-	/* Check that the partition is aligned to the block size */
-	if (!IS_ALIGNED(p.start | p.length, bdev_logical_block_size(bdev)))
-		return -EINVAL;
 
 	start = p.start >> SECTOR_SHIFT;
 	length = p.length >> SECTOR_SHIFT;
@@ -52,6 +46,9 @@ static int blkpg_do_ioctl(struct block_device *bdev,
 
 	switch (op) {
 	case BLKPG_ADD_PARTITION:
+		/* check if partition is aligned to blocksize */
+		if (p.start & (bdev_logical_block_size(bdev) - 1))
+			return -EINVAL;
 		return bdev_add_partition(bdev, p.pno, start, length);
 	case BLKPG_RESIZE_PARTITION:
 		return bdev_resize_partition(bdev, p.pno, start, length);

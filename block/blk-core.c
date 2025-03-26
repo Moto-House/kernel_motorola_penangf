@@ -66,9 +66,6 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(block_rq_merge);
 EXPORT_TRACEPOINT_SYMBOL_GPL(block_rq_requeue);
 EXPORT_TRACEPOINT_SYMBOL_GPL(block_rq_complete);
 
-#undef CREATE_TRACE_POINTS
-#include <trace/hooks/block.h>
-
 DEFINE_IDA(blk_queue_ida);
 
 /*
@@ -470,11 +467,20 @@ int blk_queue_enter(struct request_queue *q, blk_mq_req_flags_t flags)
 		 */
 		smp_rmb();
 
+#if IS_ENABLED(CONFIG_MTK_BLOCK_IO_PM_DEBUG)
+		trace_blk_queue_enter_sleep(q);
+#endif
+
 		wait_event(q->mq_freeze_wq,
 			   (!q->mq_freeze_depth &&
 			    (pm || (blk_pm_request_resume(q),
 				    !blk_queue_pm_only(q)))) ||
 			   blk_queue_dying(q));
+
+#if IS_ENABLED(CONFIG_MTK_BLOCK_IO_PM_DEBUG)
+		trace_blk_queue_enter_wakeup(q);
+#endif
+
 		if (blk_queue_dying(q))
 			return -ENODEV;
 	}
@@ -525,7 +531,6 @@ struct request_queue *blk_alloc_queue(int node_id)
 {
 	struct request_queue *q;
 	int ret;
-	bool skip = false;
 
 	q = kmem_cache_alloc_node(blk_requestq_cachep,
 				GFP_KERNEL | __GFP_ZERO, node_id);
@@ -588,10 +593,6 @@ struct request_queue *blk_alloc_queue(int node_id)
 	blk_queue_dma_alignment(q, 511);
 	blk_set_default_limits(&q->limits);
 	q->nr_requests = BLKDEV_MAX_RQ;
-
-	trace_android_rvh_blk_allocated_queue_init(&skip, q);
-	if (skip)
-		goto fail_ref;
 
 	return q;
 
@@ -1769,7 +1770,6 @@ EXPORT_SYMBOL(blk_check_plugged);
 
 void blk_flush_plug_list(struct blk_plug *plug, bool from_schedule)
 {
-	trace_android_rvh_blk_flush_plug_list(plug, from_schedule);
 	flush_plug_callbacks(plug, from_schedule);
 
 	if (!list_empty(&plug->mq_list))

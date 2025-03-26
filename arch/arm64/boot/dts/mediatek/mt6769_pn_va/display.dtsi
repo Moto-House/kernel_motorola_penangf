@@ -1,0 +1,157 @@
+&mtk_leds {
+	compatible = "mediatek,disp-leds";
+	backlight {
+		label = "lcd-backlight";
+		max-brightness = <2047>;
+		max-hw-brightness = <2047>;
+	};
+};
+
+&dsi0 {
+	status = "okay";
+	#address-cells = <1>;
+	#size-cells = <0>;
+    panel1@0 {
+        compatible = "lcm,ili9883a";
+        reg = <0>;
+        reset-gpio = <&pio 45 0>;
+        vp-gpio = <&pio 169 0>;
+        vn-gpio = <&pio 165 0>;
+        pinctrl-names = "default";
+        port {
+            panel_in1: endpoint {
+                remote-endpoint = <&dsi_out>;
+            };
+        };
+    };
+    panel2@1 {
+        compatible = "lcm,td4160";
+        reg = <1>;
+        reset-gpio = <&pio 45 0>;
+        vp-gpio = <&pio 169 0>;
+        vn-gpio = <&pio 165 0>;
+        pinctrl-names = "default";
+        port {
+            panel_in2: endpoint {
+                remote-endpoint = <&dsi_out>;
+            };
+        };
+    };
+    panel3@2 {
+        compatible = "lcm,icnl9916";
+        reg = <2>;
+        reset-gpio = <&pio 45 0>;
+        vp-gpio = <&pio 169 0>;
+        vn-gpio = <&pio 165 0>;
+        pinctrl-names = "default";
+        port {
+            panel_in3: endpoint {
+                remote-endpoint = <&dsi_out>;
+            };
+        };
+    };
+    panel4@3 {
+        compatible = "lcm,ili7807s";
+        reg = <3>;
+        reset-gpio = <&pio 45 0>;
+        vp-gpio = <&pio 169 0>;
+        vn-gpio = <&pio 165 0>;
+        pinctrl-names = "default";
+        port {
+            panel_in4: endpoint {
+                remote-endpoint = <&dsi_out>;
+            };
+        };
+    };
+    ports {
+        port {
+            dsi_out: endpoint {
+                remote-endpoint = <&panel_in1>;
+            };
+        };
+    };
+};
+
+&i2c0 {
+	status = "okay";
+	lcd_bias_i2c@3e {
+		compatible = "mtk,i2c_lcd_bias";
+		reg = <0x3e>;
+		mtk,enp = <&pio 169 0>;
+		mtk,enn = <&pio 165 0>;
+		mtk,tp_reset = <&pio 92 0>;
+		pinctrl-names = "lcd_enn_default", "lcd_enn_output_high",
+				"lcd_enn_output_low", "lcd_enp_default",
+				"lcd_enp_output_high", "lcd_enp_output_low",
+				"tp_reset_default", "tp_reset_output_high",
+				"tp_reset_output_low";
+		pinctrl-0 = <&bias_enn_default>;
+		pinctrl-1 = <&bias_enn_output_high>;
+		pinctrl-2 = <&bias_enn_output_low>;
+		pinctrl-3 = <&bias_enp_default>;
+		pinctrl-4 = <&bias_enp_output_high>;
+		pinctrl-5 = <&bias_enp_output_low>;
+		pinctrl-6 = <&tp_pins_reset_default>;
+		pinctrl-7 = <&tp_pins_reset_output_high>;
+		pinctrl-8 = <&tp_pins_reset_output_low>;
+	};
+};
+
+&pio {
+	bias_enn_default: enn_default {
+	};
+
+	bias_enn_output_high: enn_output_high {
+	pins_cmd_dat {
+		pinmux = <PINMUX_GPIO165__FUNC_GPIO165>;
+			slew-rate = <1>;
+			output-high;
+		 };
+	 };
+
+	bias_enn_output_low: enn_output_low {
+		pins_cmd_dat {
+			pinmux = <PINMUX_GPIO165__FUNC_GPIO165>;
+			slew-rate = <1>;
+			output-low;
+		};
+	};
+
+	bias_enp_default: enp_default {
+	};
+
+	bias_enp_output_high: enp_output_high {
+		pins_cmd_dat {
+			pinmux = <PINMUX_GPIO169__FUNC_GPIO169>;
+			slew-rate = <1>;
+			output-high;
+		};
+	};
+
+	bias_enp_output_low: bias_enp_output_low {
+		pins_cmd_dat {
+			pinmux = <PINMUX_GPIO169__FUNC_GPIO169>;
+			slew-rate = <1>;
+			output-low;
+		};
+	};
+
+	tp_pins_reset_default: reset_default {
+	};
+
+	tp_pins_reset_output_high: reset_output_high {
+		pins_cmd_dat {
+			pinmux = <PINMUX_GPIO92__FUNC_GPIO92>;
+			slew-rate = <1>;
+			output-high;
+		};
+	};
+
+	tp_pins_reset_output_low: reset_output_low {
+		pins_cmd_dat {
+			pinmux = <PINMUX_GPIO92__FUNC_GPIO92>;
+			slew-rate = <1>;
+			output-low;
+		};
+	};
+};

@@ -147,7 +147,6 @@ struct nvme_dev {
 	/* host memory buffer support: */
 	u64 host_mem_size;
 	u32 nr_host_mem_descs;
-	u32 host_mem_descs_size;
 	dma_addr_t host_mem_descs_dma;
 	struct nvme_host_mem_buf_desc *host_mem_descs;
 	void **host_mem_desc_bufs;
@@ -487,13 +486,22 @@ static inline void nvme_write_sq_db(struct nvme_queue *nvmeq, bool write_sq)
 	nvmeq->last_sq_tail = nvmeq->sq_tail;
 }
 
-static inline void nvme_sq_copy_cmd(struct nvme_queue *nvmeq,
-				    struct nvme_command *cmd)
+/**
+ * nvme_submit_cmd() - Copy a command into a queue and ring the doorbell
+ * @nvmeq: The queue to use
+ * @cmd: The command to send
+ * @write_sq: whether to write to the SQ doorbell
+ */
+static void nvme_submit_cmd(struct nvme_queue *nvmeq, struct nvme_command *cmd,
+			    bool write_sq)
 {
+	spin_lock(&nvmeq->sq_lock);
 	memcpy(nvmeq->sq_cmds + (nvmeq->sq_tail << nvmeq->sqes),
-		absolute_pointer(cmd), sizeof(*cmd));
+	       cmd, sizeof(*cmd));
 	if (++nvmeq->sq_tail == nvmeq->q_depth)
 		nvmeq->sq_tail = 0;
+	nvme_write_sq_db(nvmeq, write_sq);
+	spin_unlock(&nvmeq->sq_lock);
 }
 
 static void nvme_commit_rqs(struct blk_mq_hw_ctx *hctx)
@@ -836,8 +844,7 @@ static blk_status_t nvme_map_data(struct nvme_dev *dev, struct request *req,
 		struct bio_vec bv = req_bvec(req);
 
 		if (!is_pci_p2pdma_page(bv.bv_page)) {
-			if ((bv.bv_offset & (NVME_CTRL_PAGE_SIZE - 1)) +
-			     bv.bv_len <= NVME_CTRL_PAGE_SIZE * 2)
+			if (bv.bv_offset + bv.bv_len <= NVME_CTRL_PAGE_SIZE * 2)
 				return nvme_setup_prp_simple(dev, req,
 							     &cmnd->rw, &bv);
 
@@ -937,14 +944,10 @@ static blk_status_t nvme_queue_rq(struct blk_mq_hw_ctx *hctx,
 	}
 
 	blk_mq_start_request(req);
-	spin_lock(&nvmeq->sq_lock);
-	nvme_sq_copy_cmd(nvmeq, &iod->cmd);
-	nvme_write_sq_db(nvmeq, bd->last);
-	spin_unlock(&nvmeq->sq_lock);
+	nvme_submit_cmd(nvmeq, cmnd, bd->last);
 	return BLK_STS_OK;
 out_unmap_data:
-	if (blk_rq_nr_phys_segments(req))
-		nvme_unmap_data(dev, req);
+	nvme_unmap_data(dev, req);
 out_free_cmd:
 	nvme_cleanup_cmd(req);
 	return ret;
@@ -1116,11 +1119,7 @@ static void nvme_pci_submit_async_event(struct nvme_ctrl *ctrl)
 	memset(&c, 0, sizeof(c));
 	c.common.opcode = nvme_admin_async_event;
 	c.common.command_id = NVME_AQ_BLK_MQ_DEPTH;
-
-	spin_lock(&nvmeq->sq_lock);
-	nvme_sq_copy_cmd(nvmeq, &c);
-	nvme_write_sq_db(nvmeq, true);
-	spin_unlock(&nvmeq->sq_lock);
+	nvme_submit_cmd(nvmeq, &c, true);
 }
 
 static int adapter_delete_queue(struct nvme_dev *dev, u8 opcode, u16 id)
@@ -1926,10 +1925,10 @@ static void nvme_free_host_mem(struct nvme_dev *dev)
 
 	kfree(dev->host_mem_desc_bufs);
 	dev->host_mem_desc_bufs = NULL;
-	dma_free_coherent(dev->dev, dev->host_mem_descs_size,
+	dma_free_coherent(dev->dev,
+			dev->nr_host_mem_descs * sizeof(*dev->host_mem_descs),
 			dev->host_mem_descs, dev->host_mem_descs_dma);
 	dev->host_mem_descs = NULL;
-	dev->host_mem_descs_size = 0;
 	dev->nr_host_mem_descs = 0;
 }
 
@@ -1937,7 +1936,7 @@ static int __nvme_alloc_host_mem(struct nvme_dev *dev, u64 preferred,
 		u32 chunk_size)
 {
 	struct nvme_host_mem_buf_desc *descs;
-	u32 max_entries, len, descs_size;
+	u32 max_entries, len;
 	dma_addr_t descs_dma;
 	int i = 0;
 	void **bufs;
@@ -1950,9 +1949,8 @@ static int __nvme_alloc_host_mem(struct nvme_dev *dev, u64 preferred,
 	if (dev->ctrl.hmmaxd && dev->ctrl.hmmaxd < max_entries)
 		max_entries = dev->ctrl.hmmaxd;
 
-	descs_size = max_entries * sizeof(*descs);
-	descs = dma_alloc_coherent(dev->dev, descs_size, &descs_dma,
-			GFP_KERNEL);
+	descs = dma_alloc_coherent(dev->dev, max_entries * sizeof(*descs),
+				   &descs_dma, GFP_KERNEL);
 	if (!descs)
 		goto out;
 
@@ -1981,7 +1979,6 @@ static int __nvme_alloc_host_mem(struct nvme_dev *dev, u64 preferred,
 	dev->host_mem_size = size;
 	dev->host_mem_descs = descs;
 	dev->host_mem_descs_dma = descs_dma;
-	dev->host_mem_descs_size = descs_size;
 	dev->host_mem_desc_bufs = bufs;
 	return 0;
 
@@ -1996,7 +1993,8 @@ out_free_bufs:
 
 	kfree(bufs);
 out_free_descs:
-	dma_free_coherent(dev->dev, descs_size, descs, descs_dma);
+	dma_free_coherent(dev->dev, max_entries * sizeof(*descs), descs,
+			descs_dma);
 out:
 	dev->host_mem_descs = NULL;
 	return -ENOMEM;
@@ -2848,13 +2846,6 @@ static unsigned long check_vendor_combination_bug(struct pci_dev *pdev)
 			return NVME_QUIRK_SIMPLE_SUSPEND;
 	}
 
-	/*
-	 * NVMe SSD drops off the PCIe bus after system idle
-	 * for 10 hours on a Lenovo N60z board.
-	 */
-	if (dmi_match(DMI_BOARD_NAME, "LXKT-ZXEG-N6"))
-		return NVME_QUIRK_NO_APST;
-
 	return 0;
 }
 
@@ -3190,8 +3181,7 @@ static const struct pci_device_id nvme_id_table[] = {
 	{ PCI_VDEVICE(INTEL, 0x0a54),	/* Intel P4500/P4600 */
 		.driver_data = NVME_QUIRK_STRIPE_SIZE |
 				NVME_QUIRK_DEALLOCATE_ZEROES |
-				NVME_QUIRK_IGNORE_DEV_SUBNQN |
-				NVME_QUIRK_BOGUS_NID, },
+				NVME_QUIRK_IGNORE_DEV_SUBNQN, },
 	{ PCI_VDEVICE(INTEL, 0x0a55),	/* Dell Express Flash P4600 */
 		.driver_data = NVME_QUIRK_STRIPE_SIZE |
 				NVME_QUIRK_DEALLOCATE_ZEROES, },
@@ -3208,9 +3198,6 @@ static const struct pci_device_id nvme_id_table[] = {
 				NVME_QUIRK_BOGUS_NID, },
 	{ PCI_VDEVICE(REDHAT, 0x0010),	/* Qemu emulated controller */
 		.driver_data = NVME_QUIRK_BOGUS_NID, },
-	{ PCI_DEVICE(0x126f, 0x2262),	/* Silicon Motion generic */
-		.driver_data = NVME_QUIRK_NO_DEEPEST_PS |
-				NVME_QUIRK_BOGUS_NID, },
 	{ PCI_DEVICE(0x126f, 0x2263),	/* Silicon Motion unidentified */
 		.driver_data = NVME_QUIRK_NO_NS_DESC_LIST, },
 	{ PCI_DEVICE(0x1bb1, 0x0100),   /* Seagate Nytro Flash Storage */

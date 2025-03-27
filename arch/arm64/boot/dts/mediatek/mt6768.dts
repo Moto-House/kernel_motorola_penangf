@@ -500,13 +500,14 @@ aliases {
 	/* chosen */
 	chosen: chosen {
 		bootargs = "console=tty0 root=/dev/ram \
-vmalloc=400M swiotlb=noforce log_buf_len=2m \
-8250.nr_uarts=2 \
-cgroup.memory=nosocket,nokmem \
-firmware_class.path=/vendor/firmware \
-loop.max_part=7 \
-initcall_debug=1 pelt=8 \
-transparent_hugepage=never";
+		vmalloc=400M swiotlb=noforce log_buf_len=2m \
+		8250.nr_uarts=2 \
+		cgroup.memory=nosocket,nokmem \
+		firmware_class.path=/vendor/firmware \
+		loop.max_part=7 \
+		initcall_debug=1 pelt=8 \
+		transparent_hugepage=never \
+		androidboot.init_fatal_reboot_target=recovery";
 		kaslr-seed = <0 0>;
 	};
 

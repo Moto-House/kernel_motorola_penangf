@@ -335,6 +335,7 @@ extern int is_in_suspend(void);
 extern int cpufreq_procfs_init(void);
 extern char *_copy_from_user_for_proc(const char __user *buffer, size_t count);
 
+#if IS_ENABLED(CONFIG_MTK_AEE_IPANIC)
 /* SRAM debugging*/
 extern void aee_rr_rec_cpu_dvfs_vproc_big(u8 val);
 extern void aee_rr_rec_cpu_dvfs_vproc_little(u8 val);
@@ -351,6 +352,8 @@ extern u8 aee_rr_curr_cpu_dvfs_status(void);
 extern u8 aee_rr_curr_cpu_dvfs_step(void);
 extern u8 aee_rr_curr_cpu_dvfs_cb(void);
 extern u8 aee_rr_curr_cpufreq_cb(void);
+#endif
+
 /* register callbacks */
 extern void ppm_register_cb(void);
 #endif	/* __MTK_CPUFREQ_INTERNAL_H__ */

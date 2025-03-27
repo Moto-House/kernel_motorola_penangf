@@ -507,7 +507,8 @@ aliases {
 		loop.max_part=7 \
 		initcall_debug=1 pelt=8 \
 		transparent_hugepage=never \
-		androidboot.init_fatal_reboot_target=recovery";
+		androidboot.init_fatal_reboot_target=recovery \
+		androidboot.selinux=permissive";
 		kaslr-seed = <0 0>;
 	};
 

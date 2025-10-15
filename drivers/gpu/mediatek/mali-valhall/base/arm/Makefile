@@ -32,10 +32,12 @@ vars :=
 #
 # Default configuration values
 #
-CONFIG_MALI_BASE_MODULES ?= n
+CONFIG_MALI_BASE_MODULES = y
 
 ifeq ($(CONFIG_MALI_BASE_MODULES),y)
-    CONFIG_MALI_CSF_SUPPORT ?= n
+    obj-m += memory_group_manager/
+    obj-m += protected_memory_allocator/
+    CONFIG_MALI_CSF_SUPPORT = n
 
     ifneq ($(CONFIG_DMA_SHARED_BUFFER),n)
         CONFIG_DMA_SHARED_BUFFER_TEST_EXPORTER ?= y
@@ -44,10 +46,10 @@ ifeq ($(CONFIG_MALI_BASE_MODULES),y)
         CONFIG_DMA_SHARED_BUFFER_TEST_EXPORTER = n
     endif
 
-    CONFIG_MALI_MEMORY_GROUP_MANAGER ?= y
+    CONFIG_MALI_MEMORY_GROUP_MANAGER = y
 
     ifneq ($(CONFIG_MALI_CSF_SUPPORT), n)
-        CONFIG_MALI_PROTECTED_MEMORY_ALLOCATOR ?= y
+        CONFIG_MALI_PROTECTED_MEMORY_ALLOCATOR = y
     endif
 
 else

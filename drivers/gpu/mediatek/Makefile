@@ -35,6 +35,8 @@ ifneq ($(CONFIG_MTK_GPU_SUPPORT),)
 ifeq ($(CONFIG_MTK_GPU_MT6768_SUPPORT)$(CONFIG_MTK_GPU_MT6765_SUPPORT)$(CONFIG_MTK_GPU_MT6893_SUPPORT)$(CONFIG_MTK_GPU_MT6761_SUPPORT)$(CONFIG_MTK_GPU_MT6739_SUPPORT),)
     obj-y += gpu_bm/
     obj-y += gpueb/
+    obj-y += mali-valhall/base/arm/
+    obj-y += mali-valhall/gpu/arm/
 endif
 endif
 

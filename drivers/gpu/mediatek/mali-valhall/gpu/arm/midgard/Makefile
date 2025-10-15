@@ -18,6 +18,7 @@
 #
 #
 
+MTK_PLATFORM_VERSION = mt6768
 ifeq ($(BUILD_RULE),OOT)
 
     ifeq ($(MTK_PLATFORM_VERSION),mt6789)
